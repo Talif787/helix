@@ -1,0 +1,43 @@
+# Cloud Build CI for Helix. Runs on every push and pull request once a trigger is
+# wired up (see docs/DEVELOPMENT.md). It formats-checks, vets, builds, and runs the
+# tests under the race detector. No deployment happens here; deployment arrives in
+# a later phase.
+#
+# Run it by hand from Cloud Shell without a trigger:
+#   gcloud builds submit --config=cloudbuild.yaml .
+
+steps:
+  - id: fmt-check
+    name: 'golang:1.22'
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        unformatted="$(gofmt -l .)"
+        if [ -n "$unformatted" ]; then
+          echo "These files are not gofmt-clean:"; echo "$unformatted"; exit 1
+        fi
+
+  - id: vet
+    name: 'golang:1.22'
+    entrypoint: bash
+    args: ['-c', 'go vet ./...']
+
+  - id: build
+    name: 'golang:1.22'
+    entrypoint: bash
+    args: ['-c', 'go build ./...']
+
+  - id: test-race
+    name: 'golang:1.22'
+    entrypoint: bash
+    env:
+      - 'CGO_ENABLED=1'
+    args: ['-c', 'go test -race -count=1 ./...']
+
+options:
+  # Send logs to Cloud Logging only, which avoids the logs-bucket requirement that
+  # otherwise trips builds run with the default or a user-managed service account.
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 900s
