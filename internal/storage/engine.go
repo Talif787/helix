@@ -10,8 +10,8 @@ import (
 
 // Default size limits used when Options leaves them unset.
 const (
-	DefaultMaxKeyBytes   = 64 << 10  // 64 KiB
-	DefaultMaxValueBytes = 1 << 20   // 1 MiB
+	DefaultMaxKeyBytes   = 64 << 10 // 64 KiB
+	DefaultMaxValueBytes = 1 << 20  // 1 MiB
 	walFileName          = "wal.log"
 )
 
