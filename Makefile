@@ -1,9 +1,13 @@
-.PHONY: build run test race vet fmt tidy clean check
+.PHONY: build demos run test race vet fmt tidy clean check
 
 BINARY := bin/kvnode
 
 build:
 	go build -o $(BINARY) ./cmd/kvnode
+
+demos:
+	go build -o bin/sstdemo ./cmd/sstdemo
+	go build -o bin/clusterdemo ./cmd/clusterdemo
 
 run: build
 	./$(BINARY)
