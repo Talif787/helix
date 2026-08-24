@@ -2,16 +2,21 @@ package cluster
 
 import (
 	"context"
+	"errors"
+	"sync"
 
 	"github.com/talifpathan/helix/internal/storage"
 )
 
-// LocalNode adapts a storage.Engine to the Store interface so the coordinator can route
-// requests to it exactly as it will later route them across the network. Each method
-// honors context cancellation, then delegates to the engine.
+// LocalNode adapts a storage.Engine to the Replica interface. It stores each key as a
+// JSON-encoded VersionedValue, and every write is a read-modify-write that reconciles the
+// incoming version against what the node already holds, so a replica never loses causal
+// history or regresses to an older value. A per-node mutex serializes those
+// read-modify-write cycles; finer-grained per-key locking is a later optimization.
 type LocalNode struct {
 	id  string
 	eng *storage.Engine
+	mu  sync.Mutex
 }
 
 // NewLocalNode wraps eng as the node identified by id.
@@ -22,28 +27,48 @@ func NewLocalNode(id string, eng *storage.Engine) *LocalNode {
 // ID returns the node's identifier.
 func (n *LocalNode) ID() string { return n.id }
 
-// Get returns the value for key from this node's engine.
-func (n *LocalNode) Get(ctx context.Context, key []byte) ([]byte, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+func (n *LocalNode) readDecode(key []byte) (VersionedValue, bool, error) {
+	raw, err := n.eng.Get(key)
+	if errors.Is(err, storage.ErrNotFound) {
+		return VersionedValue{}, false, nil
 	}
-	return n.eng.Get(key)
+	if err != nil {
+		return VersionedValue{}, false, err
+	}
+	vv, err := decodeVersioned(raw)
+	if err != nil {
+		return VersionedValue{}, false, err
+	}
+	return vv, true, nil
 }
 
-// Put stores value under key on this node's engine.
-func (n *LocalNode) Put(ctx context.Context, key, value []byte) error {
+// GetVersioned returns the node's current version of key.
+func (n *LocalNode) GetVersioned(ctx context.Context, key []byte) (VersionedValue, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return VersionedValue{}, false, err
+	}
+	return n.readDecode(key)
+}
+
+// PutVersioned reconciles vv against the node's current version and stores the result.
+func (n *LocalNode) PutVersioned(ctx context.Context, key []byte, vv VersionedValue) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return n.eng.Put(key, value)
-}
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-// Delete records a tombstone for key on this node's engine.
-func (n *LocalNode) Delete(ctx context.Context, key []byte) error {
-	if err := ctx.Err(); err != nil {
+	final := vv
+	if cur, ok, err := n.readDecode(key); err != nil {
+		return err
+	} else if ok {
+		final = Reconcile(vv, cur)
+	}
+	raw, err := encodeVersioned(final)
+	if err != nil {
 		return err
 	}
-	return n.eng.Delete(key)
+	return n.eng.Put(key, raw)
 }
 
 // Close closes the underlying engine.

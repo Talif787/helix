@@ -1,8 +1,8 @@
-// Command clusterdemo brings up a three-node in-process Helix cluster, seeds it, and
-// verifies partitioning end to end: keys spread across nodes, reads route back to the
-// right owner, data lives only on its owner, routing is deterministic, and deletes take
-// effect. It prints a short report and exits non-zero on any failed check, so it doubles
-// as a smoke test.
+// Command clusterdemo brings up a three-node in-process Helix cluster with replication and
+// tunable quorums, then verifies the Phase 4 behavior end to end: each key is replicated
+// to its preference list, writes and reads succeed with a node offline (quorum), and a
+// read repairs a stale replica after it rejoins. It prints a short report and exits
+// non-zero on any failed check, so it doubles as a smoke test.
 package main
 
 import (
@@ -36,10 +36,12 @@ func run() error {
 
 	logger := observability.NewLogger("warn", "text") // quiet; the demo prints its own report
 	nodeIDs := []string{"node-a", "node-b", "node-c"}
+	const N, R, W = 3, 2, 2
 
 	c, err := cluster.NewCluster(nodeIDs, cluster.Options{
 		BaseDir: dir,
 		VNodes:  cluster.DefaultVNodes,
+		N:       N, R: R, W: W,
 		Storage: storage.Options{SyncWrites: false},
 		Logger:  logger,
 	})
@@ -48,7 +50,9 @@ func run() error {
 	}
 	defer c.Close()
 
-	const n = 3000
+	fmt.Printf("cluster of %d nodes, replication N=%d R=%d W=%d\n", len(nodeIDs), N, R, W)
+
+	const n = 2000
 	key := func(i int) []byte { return []byte(fmt.Sprintf("key:%05d", i)) }
 	val := func(i int) string { return fmt.Sprintf("val:%05d", i) }
 
@@ -57,30 +61,6 @@ func run() error {
 			return fmt.Errorf("put %s: %w", key(i), err)
 		}
 	}
-
-	// Distribution across nodes.
-	dist := map[string]int{}
-	for i := 0; i < n; i++ {
-		owner, ok := c.OwnerOf(key(i))
-		if !ok {
-			return fmt.Errorf("no owner for %s", key(i))
-		}
-		dist[owner]++
-	}
-	fmt.Printf("seeded %d keys across %d nodes\n", n, len(nodeIDs))
-	for _, id := range sortedKeys(dist) {
-		fmt.Printf("  %-8s %5d keys (%.1f%%)\n", id, dist[id], float64(dist[id])*100/float64(n))
-	}
-	if len(dist) != len(nodeIDs) {
-		return fmt.Errorf("expected keys on all %d nodes, saw %d", len(nodeIDs), len(dist))
-	}
-	for _, id := range nodeIDs {
-		if dist[id] == 0 {
-			return fmt.Errorf("node %s received no keys", id)
-		}
-	}
-
-	// Read-back through the coordinator.
 	for i := 0; i < n; i++ {
 		got, err := c.Get(ctx, key(i))
 		if err != nil {
@@ -90,46 +70,65 @@ func run() error {
 			return fmt.Errorf("get %s: want %s got %s", key(i), val(i), got)
 		}
 	}
-	fmt.Printf("verified read-back of all %d keys through the coordinator\n", n)
+	fmt.Printf("wrote and read back %d keys with quorum\n", n)
 
-	// Data locality and deterministic routing on a few samples.
-	samples := []int{0, 1500, 2999}
-	for _, i := range samples {
+	// Every key should physically live on each replica in its preference list.
+	replicaLoad := map[string]int{}
+	for i := 0; i < n; i++ {
 		k := key(i)
-		owner, _ := c.OwnerOf(k)
-		if o2, _ := c.OwnerOf(k); o2 != owner {
-			return fmt.Errorf("nondeterministic owner for %s: %s vs %s", k, owner, o2)
-		}
-		for _, id := range nodeIDs {
+		for _, id := range c.PreferenceList(k, N) {
 			node, _ := c.Node(id)
-			_, gerr := node.Get(ctx, k)
-			if id == owner {
-				if gerr != nil {
-					return fmt.Errorf("owner %s missing %s: %w", id, k, gerr)
-				}
-			} else if !errors.Is(gerr, storage.ErrNotFound) {
-				return fmt.Errorf("non-owner %s should not hold %s (err=%v)", id, k, gerr)
+			_, found, err := node.GetVersioned(ctx, k)
+			if err != nil {
+				return fmt.Errorf("getversioned %s on %s: %w", k, id, err)
 			}
+			if !found {
+				return fmt.Errorf("replica %s missing %s", id, k)
+			}
+			replicaLoad[id]++
 		}
-		fmt.Printf("  %s owned by %s and absent on the other nodes\n", k, owner)
+	}
+	fmt.Printf("replica placement verified (%d copies total for %d keys)\n", n*N, n)
+	for _, id := range sortedKeys(replicaLoad) {
+		fmt.Printf("  %-8s holds %5d keys\n", id, replicaLoad[id])
 	}
 
-	// Deletes take effect; neighbors remain.
-	del := []int{0, 1, 2}
-	for _, i := range del {
-		if err := c.Delete(ctx, key(i)); err != nil {
-			return fmt.Errorf("delete %s: %w", key(i), err)
-		}
+	// Fault tolerance: take one preference node offline, keep serving with quorum.
+	fkey := []byte("failover-key")
+	if err := c.Put(ctx, fkey, []byte("before")); err != nil {
+		return fmt.Errorf("seed failover key: %w", err)
 	}
-	for _, i := range del {
-		if _, err := c.Get(ctx, key(i)); !errors.Is(err, storage.ErrNotFound) {
-			return fmt.Errorf("expected %s deleted, err=%v", key(i), err)
-		}
+	down := c.PreferenceList(fkey, N)[N-1]
+	c.Transport().Deregister(down)
+	fmt.Printf("took %s offline\n", down)
+
+	if err := c.Put(ctx, fkey, []byte("after")); err != nil {
+		return fmt.Errorf("write with %s down should meet W=%d: %w", down, W, err)
 	}
-	if _, err := c.Get(ctx, key(3)); err != nil {
-		return fmt.Errorf("neighbor %s should remain: %w", key(3), err)
+	if got, err := c.Get(ctx, fkey); err != nil || string(got) != "after" {
+		return fmt.Errorf("read with %s down: got %q err %v", down, got, err)
 	}
-	fmt.Printf("deleted %d keys and confirmed a neighbor survived\n", len(del))
+	fmt.Printf("served read and write with %s offline (W=%d, R=%d)\n", down, W, R)
+
+	// Rejoin and let a read repair the stale replica.
+	node, _ := c.Node(down)
+	c.Transport().Register(down, node)
+	if _, err := c.Get(ctx, fkey); err != nil {
+		return fmt.Errorf("read after rejoin: %w", err)
+	}
+	if vv, found, _ := node.GetVersioned(ctx, fkey); !found || string(vv.Value) != "after" {
+		return fmt.Errorf("read repair should have updated %s to \"after\", found=%v value=%q", down, found, vv.Value)
+	}
+	fmt.Printf("%s rejoined and was read-repaired to the latest value\n", down)
+
+	// Delete replicates too.
+	if err := c.Delete(ctx, fkey); err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	if _, err := c.Get(ctx, fkey); !errors.Is(err, storage.ErrNotFound) {
+		return fmt.Errorf("expected deleted key to be absent, err=%v", err)
+	}
+	fmt.Println("delete replicated and observed on read")
 
 	return nil
 }
