@@ -5,52 +5,56 @@ import (
 	"sync"
 )
 
-// Store is the operation surface a single node exposes to the rest of the cluster. It
-// mirrors the storage engine's core operations but takes a context, because a request
-// routed to another node is cancelable and, in a later phase, crosses the network.
-type Store interface {
-	Get(ctx context.Context, key []byte) ([]byte, error)
-	Put(ctx context.Context, key, value []byte) error
-	Delete(ctx context.Context, key []byte) error
+// Replica is the versioned operation surface a single node exposes to the coordinator.
+// It replaces the raw get/put of the previous phase: a node now stores and returns
+// VersionedValue so the coordinator can reconcile divergent copies. In this phase it is
+// served in-process; a later phase serves it over the network with the same signatures.
+type Replica interface {
+	// GetVersioned returns the node's current version of key, or found=false if absent.
+	GetVersioned(ctx context.Context, key []byte) (VersionedValue, bool, error)
+	// PutVersioned stores vv, reconciling it against any version the node already holds so
+	// a replica never regresses to an older or divergent value.
+	PutVersioned(ctx context.Context, key []byte, vv VersionedValue) error
 }
 
-// Transport resolves a node ID to a Store. The in-process implementation looks the node
+// Transport resolves a node id to a Replica. The in-process implementation looks the node
 // up in a map. A network implementation would return a client stub that dials the node,
 // so the coordinator above it is unchanged when nodes move onto separate processes.
 type Transport interface {
-	Store(nodeID string) (Store, bool)
+	Replica(nodeID string) (Replica, bool)
 }
 
-// InProcessTransport dispatches operations to nodes running in the same process. It is
-// safe for concurrent use.
+// InProcessTransport dispatches operations to replicas running in the same process. It is
+// safe for concurrent use, and Deregister lets a test or the demo simulate a node that has
+// become unreachable.
 type InProcessTransport struct {
 	mu    sync.RWMutex
-	nodes map[string]Store
+	nodes map[string]Replica
 }
 
 // NewInProcessTransport returns an empty transport.
 func NewInProcessTransport() *InProcessTransport {
-	return &InProcessTransport{nodes: make(map[string]Store)}
+	return &InProcessTransport{nodes: make(map[string]Replica)}
 }
 
-// Register makes nodeID resolvable to s. Registering an existing id replaces it.
-func (t *InProcessTransport) Register(nodeID string, s Store) {
+// Register makes nodeID resolvable to r. Registering an existing id replaces it.
+func (t *InProcessTransport) Register(nodeID string, r Replica) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.nodes[nodeID] = s
+	t.nodes[nodeID] = r
 }
 
-// Deregister removes nodeID from the transport.
+// Deregister removes nodeID, modeling a node that has gone offline.
 func (t *InProcessTransport) Deregister(nodeID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.nodes, nodeID)
 }
 
-// Store resolves nodeID, reporting ok=false if it is not registered.
-func (t *InProcessTransport) Store(nodeID string) (Store, bool) {
+// Replica resolves nodeID, reporting ok=false if it is not currently registered.
+func (t *InProcessTransport) Replica(nodeID string) (Replica, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	s, ok := t.nodes[nodeID]
-	return s, ok
+	r, ok := t.nodes[nodeID]
+	return r, ok
 }
