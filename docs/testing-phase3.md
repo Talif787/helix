@@ -297,6 +297,7 @@ package cluster
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/talifpathan/helix/internal/storage"
@@ -305,7 +306,13 @@ import (
 func TestClusterManualScenario(t *testing.T) {
 	// ---------------- EDIT THESE DUMMY VALUES ----------------
 	nodeIDs := []string{"node-1", "node-2", "node-3"}
-	baseDir := "./data-cluster-manual"
+	// go test runs with the working directory set to this package's directory, so a
+	// relative path would land under internal/cluster. Read an absolute path from the
+	// environment (set HELIX_MANUAL_DIR in the shell) and fall back to a temp dir.
+	baseDir := os.Getenv("HELIX_MANUAL_DIR")
+	if baseDir == "" {
+		baseDir = filepath.Join(os.TempDir(), "helix-cluster-manual")
+	}
 	vnodes := 128
 	pairs := map[string]string{
 		"user:1001":  "alice",
@@ -353,20 +360,24 @@ func TestClusterManualScenario(t *testing.T) {
 	if _, err := c.Get(ctx, []byte(deleteKey)); err == nil {
 		t.Fatalf("expected %s to be deleted", deleteKey)
 	}
-	t.Logf("deleted %s; per-node data is under %s", deleteKey, baseDir)
+	abs, _ := filepath.Abs(baseDir)
+	t.Logf("deleted %s; per-node data is under %s", deleteKey, abs)
 }
 HELIX_EOF
 echo "created internal/cluster/manual_scenario_test.go"
 ```
 
-Run it and inspect the on-disk partitioning:
+Run it and inspect the on-disk partitioning. Set HELIX_MANUAL_DIR to an absolute path so
+the data lands somewhere predictable (recall that go test's working directory is the
+package directory, not your shell's):
 
 ```bash
 cd "$HELIX_HOME"
+export HELIX_MANUAL_DIR="$HELIX_HOME/data-cluster-manual"
 go test -race -v -run TestClusterManualScenario ./internal/cluster/
 
 echo "--- per-node data directories (each node has its own WAL and MANIFEST) ---"
-ls -R ./data-cluster-manual
+ls -R "$HELIX_MANUAL_DIR"
 ```
 
 Clean up when finished (both the temporary test and its data):
@@ -374,7 +385,7 @@ Clean up when finished (both the temporary test and its data):
 ```bash
 cd "$HELIX_HOME"
 rm -f internal/cluster/manual_scenario_test.go
-rm -rf ./data-cluster-manual
+rm -rf "$HELIX_MANUAL_DIR"
 echo "removed manual scenario test and its data"
 ```
 
@@ -424,10 +435,14 @@ that data is partitioned, not replicated); and the final `PASS` with exit code 0
 ### Scenario D (parameterized, on disk)
 
 - The test PASS line, plus `-v` log lines mapping each key to its value and owner, for
-  example `key user:1001  value alice     owner node-3`.
-- `ls -R ./data-cluster-manual` shows three subdirectories `node-1`, `node-2`, `node-3`,
+  example `key user:1001  value alice     owner node-3`. With only a handful of keys the
+  split across nodes will look uneven (a node may get zero); that is small-sample noise,
+  not a ring problem. The balance check is TestRingDistributionSpread with 30000 keys.
+- `ls -R "$HELIX_MANUAL_DIR"` shows three subdirectories `node-1`, `node-2`, `node-3`,
   each containing its own `000001.wal` and `MANIFEST`. Separate directories per node is
-  the on-disk evidence that the keyspace is split across independent engines.
+  the on-disk evidence that the keyspace is split across independent engines. If you did
+  not set HELIX_MANUAL_DIR, the data is under `$TMPDIR/helix-cluster-manual` (the absolute
+  path is printed in the test's final `-v` log line).
 
 ### Automated suite
 
@@ -455,8 +470,13 @@ Demo and tests
 - `go test -race` reports a DATA RACE: capture it and treat it as a real defect in the
   ring lock or the transport, not a flake. Save it with
   `go test -race ./internal/cluster/ 2>&1 | tee /tmp/helix-race.txt` and share that file.
-- Leftover `manual_scenario_test.go` causing `go test ./...` to create `data-cluster-manual`
-  on later runs: remove it and the directory per the cleanup step in Scenario D.
+- `ls` of the manual scenario's data dir reports "No such file or directory": go test runs
+  with its working directory set to the package directory, so a relative BaseDir lands
+  under `internal/cluster`, not your shell's directory. Set `HELIX_MANUAL_DIR` to an
+  absolute path (as section 7 now does) and inspect that, or read the absolute path from
+  the test's final `-v` log line.
+- Leftover `manual_scenario_test.go` causing `go test ./...` to recreate the manual data
+  dir on later runs: remove it and the directory per the cleanup step in Scenario D.
 
 Data and disk
 - `no space left on device` while running the demo: it writes to a temp directory under
