@@ -98,7 +98,7 @@ func execute(engine *storage.Engine, line string, out io.Writer) bool {
 
 	switch cmd {
 	case "HELP":
-		fmt.Fprintln(out, "commands: SET <key> <value> | GET <key> | DEL <key> | STATS | HELP | EXIT")
+		fmt.Fprintln(out, "commands: SET <key> <value> | GET <key> | DEL <key> | FLUSH | STATS | HELP | EXIT")
 	case "EXIT", "QUIT":
 		return true
 	case "SET":
@@ -138,10 +138,18 @@ func execute(engine *storage.Engine, line string, out io.Writer) bool {
 			return false
 		}
 		fmt.Fprintln(out, "OK")
+	case "FLUSH":
+		if err := engine.Flush(); err != nil {
+			fmt.Fprintln(out, "ERR", err)
+			return false
+		}
+		fmt.Fprintln(out, "OK")
 	case "STATS":
 		s := engine.Stats()
 		fmt.Fprintln(out, "keys="+strconv.Itoa(s.Keys),
 			"approx_bytes="+strconv.FormatInt(s.ApproxBytes, 10),
+			"sstables="+strconv.Itoa(s.SSTables),
+			"immutable="+strconv.Itoa(s.Immutable),
 			"next_seq="+strconv.FormatUint(s.NextSeq, 10))
 	default:
 		fmt.Fprintln(out, "unknown command:", cmd, "(type HELP)")

@@ -108,11 +108,12 @@ func (c Config) Validate() error {
 // keeping the storage package free of any dependency on this one.
 func (c Config) ToStorageOptions(logger *slog.Logger) storage.Options {
 	return storage.Options{
-		DataDir:       c.DataDir,
-		SyncWrites:    c.SyncWrites,
-		MaxKeyBytes:   c.MaxKeyBytes,
-		MaxValueBytes: c.MaxValueBytes,
-		Logger:        logger,
+		DataDir:          c.DataDir,
+		SyncWrites:       c.SyncWrites,
+		MaxKeyBytes:      c.MaxKeyBytes,
+		MaxValueBytes:    c.MaxValueBytes,
+		MemtableMaxBytes: c.MemtableMaxBytes,
+		Logger:           logger,
 	}
 }
 
