@@ -223,15 +223,29 @@ func decodeEntry(data []byte) (Record, int, error) {
 }
 
 // SSTable is a read-only handle to an on-disk table. Get is safe for concurrent use.
+// When cache is non-nil, data blocks are served from and populated into it, keyed by
+// (num, offset); num identifies this table within the shared cache.
 type SSTable struct {
 	f     *os.File
 	path  string
+	num   uint64
+	cache *BlockCache
 	bloom *Bloom
 	index []indexEntry
 }
 
-// OpenSSTable opens an SSTable for reading, loading its footer, filter, and index.
+// OpenSSTable opens an SSTable for reading with no block cache.
 func OpenSSTable(path string) (*SSTable, error) {
+	return openSSTable(path, 0, nil)
+}
+
+// OpenSSTableWithCache opens an SSTable that serves data blocks through cache,
+// identifying its blocks by num.
+func OpenSSTableWithCache(path string, num uint64, cache *BlockCache) (*SSTable, error) {
+	return openSSTable(path, num, cache)
+}
+
+func openSSTable(path string, num uint64, cache *BlockCache) (*SSTable, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -283,7 +297,7 @@ func OpenSSTable(path string) (*SSTable, error) {
 		return nil, err
 	}
 
-	return &SSTable{f: f, path: path, bloom: bloom, index: index}, nil
+	return &SSTable{f: f, path: path, num: num, cache: cache, bloom: bloom, index: index}, nil
 }
 
 func parseIndex(buf []byte) ([]indexEntry, error) {
@@ -332,8 +346,8 @@ func (st *SSTable) Get(key []byte) (Record, bool, error) {
 		return Record{}, false, nil
 	}
 
-	block := make([]byte, st.index[i].length)
-	if _, err := st.f.ReadAt(block, int64(st.index[i].offset)); err != nil {
+	block, err := st.readBlock(st.index[i].offset, st.index[i].length)
+	if err != nil {
 		return Record{}, false, err
 	}
 	for len(block) > 0 {
@@ -350,6 +364,21 @@ func (st *SSTable) Get(key []byte) (Record, bool, error) {
 		}
 	}
 	return Record{}, false, nil
+}
+
+// readBlock returns the data block at offset, serving it from the cache when present
+// and populating the cache on a miss. Cached blocks are immutable; decodeEntry copies
+// keys and values out, so sharing a cached block across readers is safe.
+func (st *SSTable) readBlock(offset, length uint64) ([]byte, error) {
+	if b, ok := st.cache.Get(st.num, offset); ok {
+		return b, nil
+	}
+	block := make([]byte, length)
+	if _, err := st.f.ReadAt(block, int64(offset)); err != nil {
+		return nil, err
+	}
+	st.cache.Put(st.num, offset, block)
+	return block, nil
 }
 
 // Path returns the file path backing this table.
