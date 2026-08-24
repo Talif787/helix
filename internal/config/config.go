@@ -21,31 +21,37 @@ const (
 	envMaxKeyBytes      = "HELIX_MAX_KEY_BYTES"
 	envMaxValueBytes    = "HELIX_MAX_VALUE_BYTES"
 	envMemtableMaxBytes = "HELIX_MEMTABLE_MAX_BYTES"
+	envBlockCacheBytes  = "HELIX_BLOCK_CACHE_BYTES"
+	envCompactionMin    = "HELIX_COMPACTION_MIN_THRESHOLD"
 	envLogLevel         = "HELIX_LOG_LEVEL"
 	envLogFormat        = "HELIX_LOG_FORMAT"
 )
 
 // Config is the fully resolved, validated node configuration.
 type Config struct {
-	DataDir          string
-	SyncWrites       bool
-	MaxKeyBytes      int
-	MaxValueBytes    int
-	MemtableMaxBytes int
-	LogLevel         string
-	LogFormat        string
+	DataDir                string
+	SyncWrites             bool
+	MaxKeyBytes            int
+	MaxValueBytes          int
+	MemtableMaxBytes       int
+	BlockCacheBytes        int
+	CompactionMinThreshold int
+	LogLevel               string
+	LogFormat              string
 }
 
 // Default returns configuration suitable for local development.
 func Default() Config {
 	return Config{
-		DataDir:          "./data",
-		SyncWrites:       true,
-		MaxKeyBytes:      storage.DefaultMaxKeyBytes,
-		MaxValueBytes:    storage.DefaultMaxValueBytes,
-		MemtableMaxBytes: 64 << 20, // 64 MiB, consulted by the flush path in a later phase
-		LogLevel:         "info",
-		LogFormat:        "json",
+		DataDir:                "./data",
+		SyncWrites:             true,
+		MaxKeyBytes:            storage.DefaultMaxKeyBytes,
+		MaxValueBytes:          storage.DefaultMaxValueBytes,
+		MemtableMaxBytes:       64 << 20, // 64 MiB, consulted by the flush path
+		BlockCacheBytes:        storage.DefaultBlockCacheBytes,
+		CompactionMinThreshold: storage.DefaultCompactionMinThreshold,
+		LogLevel:               "info",
+		LogFormat:              "json",
 	}
 }
 
@@ -66,6 +72,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if c.MemtableMaxBytes, err = getEnvInt(envMemtableMaxBytes, c.MemtableMaxBytes); err != nil {
+		return Config{}, err
+	}
+	if c.BlockCacheBytes, err = getEnvInt(envBlockCacheBytes, c.BlockCacheBytes); err != nil {
+		return Config{}, err
+	}
+	if c.CompactionMinThreshold, err = getEnvInt(envCompactionMin, c.CompactionMinThreshold); err != nil {
 		return Config{}, err
 	}
 	c.LogLevel = strings.ToLower(getEnvString(envLogLevel, c.LogLevel))
@@ -91,6 +103,12 @@ func (c Config) Validate() error {
 	if c.MemtableMaxBytes <= 0 {
 		return fmt.Errorf("config: %s must be positive, got %d", envMemtableMaxBytes, c.MemtableMaxBytes)
 	}
+	if c.BlockCacheBytes <= 0 {
+		return fmt.Errorf("config: %s must be positive, got %d", envBlockCacheBytes, c.BlockCacheBytes)
+	}
+	if c.CompactionMinThreshold < 2 {
+		return fmt.Errorf("config: %s must be at least 2, got %d", envCompactionMin, c.CompactionMinThreshold)
+	}
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":
 	default:
@@ -108,12 +126,14 @@ func (c Config) Validate() error {
 // keeping the storage package free of any dependency on this one.
 func (c Config) ToStorageOptions(logger *slog.Logger) storage.Options {
 	return storage.Options{
-		DataDir:          c.DataDir,
-		SyncWrites:       c.SyncWrites,
-		MaxKeyBytes:      c.MaxKeyBytes,
-		MaxValueBytes:    c.MaxValueBytes,
-		MemtableMaxBytes: c.MemtableMaxBytes,
-		Logger:           logger,
+		DataDir:                c.DataDir,
+		SyncWrites:             c.SyncWrites,
+		MaxKeyBytes:            c.MaxKeyBytes,
+		MaxValueBytes:          c.MaxValueBytes,
+		MemtableMaxBytes:       c.MemtableMaxBytes,
+		BlockCacheBytes:        c.BlockCacheBytes,
+		CompactionMinThreshold: c.CompactionMinThreshold,
+		Logger:                 logger,
 	}
 }
 

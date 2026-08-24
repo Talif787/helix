@@ -13,21 +13,25 @@ import (
 
 // Default limits used when Options leaves a field unset.
 const (
-	DefaultMaxKeyBytes       = 64 << 10 // 64 KiB
-	DefaultMaxValueBytes     = 1 << 20  // 1 MiB
-	DefaultMemtableMaxBytes  = 4 << 20  // 4 MiB
-	maxImmutablesBeforeStall = 4        // writers block when this many memtables await flush
+	DefaultMaxKeyBytes            = 64 << 10 // 64 KiB
+	DefaultMaxValueBytes          = 1 << 20  // 1 MiB
+	DefaultMemtableMaxBytes       = 4 << 20  // 4 MiB
+	DefaultBlockCacheBytes        = 8 << 20  // 8 MiB
+	DefaultCompactionMinThreshold = 4        // similar-size tables that trigger a compaction
+	maxImmutablesBeforeStall      = 4        // writers block when this many memtables await flush
 )
 
 // Options configures an Engine. It is a plain value object so the storage package
 // stays independent of the application configuration package.
 type Options struct {
-	DataDir          string
-	SyncWrites       bool
-	MaxKeyBytes      int
-	MaxValueBytes    int
-	MemtableMaxBytes int
-	Logger           *slog.Logger
+	DataDir                string
+	SyncWrites             bool
+	MaxKeyBytes            int
+	MaxValueBytes          int
+	MemtableMaxBytes       int
+	BlockCacheBytes        int
+	CompactionMinThreshold int
+	Logger                 *slog.Logger
 }
 
 // Stats is a point-in-time snapshot of engine state.
@@ -45,30 +49,34 @@ type flushJob struct {
 }
 
 type tableRef struct {
-	num uint64
-	st  *SSTable
+	num  uint64
+	st   *SSTable
+	size int64
 }
 
 // Engine is a durable, single-node, ordered key-value store built as a log-structured
-// merge tree. Writes append to a per-memtable WAL segment and then apply to the active
-// memtable. When the active memtable fills it is sealed into an immutable queue and a
-// background goroutine flushes it to an immutable SSTable; a fresh memtable and WAL
-// segment take over immediately, so writes do not stall for the flush. Reads merge the
-// active memtable, the immutable memtables (newest first), and the SSTables (newest
-// first), returning the first match, where a tombstone means the key is deleted.
+// merge tree. Writes append to a per-memtable WAL segment and apply to the active
+// memtable; a full memtable is sealed into an immutable queue and flushed to an SSTable
+// by a background goroutine while a fresh memtable takes over. That same goroutine
+// compacts similarly sized SSTables together to bound read amplification and, in a full
+// compaction, drops tombstones to reclaim space. Reads merge the active memtable, the
+// immutable memtables, and the SSTables; among SSTables the highest sequence number
+// wins, since compaction means file number no longer tracks data recency.
 //
-// A single mutex serializes writes and structural changes. Reads take the mutex only
-// to snapshot the current sources, then query those snapshots without holding it, so
-// reads never block behind a flush.
+// A read-write mutex guards engine state. Reads hold the read lock for their whole
+// duration, so a compaction that swaps the table set (under the write lock) can then
+// safely close and delete the replaced files: no reader can still be using them.
 type Engine struct {
-	dir       string
-	sync      bool
-	threshold int64
-	maxKey    int
-	maxVal    int
-	log       *slog.Logger
+	dir                    string
+	sync                   bool
+	threshold              int64
+	maxKey                 int
+	maxVal                 int
+	compactionMinThreshold int
+	cache                  *BlockCache
+	log                    *slog.Logger
 
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	flushCond *sync.Cond
 
 	mem    *Memtable
@@ -110,6 +118,14 @@ func Open(opts Options) (*Engine, error) {
 	if threshold <= 0 {
 		threshold = DefaultMemtableMaxBytes
 	}
+	blockCacheBytes := int64(opts.BlockCacheBytes)
+	if blockCacheBytes <= 0 {
+		blockCacheBytes = DefaultBlockCacheBytes
+	}
+	compThreshold := opts.CompactionMinThreshold
+	if compThreshold < 2 {
+		compThreshold = DefaultCompactionMinThreshold
+	}
 	if err := os.MkdirAll(opts.DataDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -120,34 +136,39 @@ func Open(opts Options) (*Engine, error) {
 	}
 
 	e := &Engine{
-		dir:            opts.DataDir,
-		sync:           opts.SyncWrites,
-		threshold:      threshold,
-		maxKey:         opts.MaxKeyBytes,
-		maxVal:         opts.MaxValueBytes,
-		log:            opts.Logger,
-		lastFlushedWAL: man.LastFlushedWAL,
-		flushCh:        make(chan struct{}, 1),
-		stopCh:         make(chan struct{}),
+		dir:                    opts.DataDir,
+		sync:                   opts.SyncWrites,
+		threshold:              threshold,
+		maxKey:                 opts.MaxKeyBytes,
+		maxVal:                 opts.MaxValueBytes,
+		compactionMinThreshold: compThreshold,
+		cache:                  NewBlockCache(blockCacheBytes),
+		log:                    opts.Logger,
+		lastFlushedWAL:         man.LastFlushedWAL,
+		flushCh:                make(chan struct{}, 1),
+		stopCh:                 make(chan struct{}),
 	}
 	e.flushCond = sync.NewCond(&e.mu)
 
 	var maxNum uint64
 
-	// Open the SSTables recorded in the manifest, oldest first.
 	for _, num := range man.Tables {
-		st, err := OpenSSTable(filepath.Join(opts.DataDir, sstName(num)))
+		path := filepath.Join(opts.DataDir, sstName(num))
+		st, err := OpenSSTableWithCache(path, num, e.cache)
 		if err != nil {
 			e.closeTables()
 			return nil, fmt.Errorf("open sstable %d: %w", num, err)
 		}
-		e.tables = append(e.tables, tableRef{num: num, st: st})
+		var sz int64
+		if fi, serr := os.Stat(path); serr == nil {
+			sz = fi.Size()
+		}
+		e.tables = append(e.tables, tableRef{num: num, st: st, size: sz})
 		if num > maxNum {
 			maxNum = num
 		}
 	}
 
-	// Find WAL segments and drop any already fully flushed.
 	walNums, err := scanWALSegments(opts.DataDir)
 	if err != nil {
 		e.closeTables()
@@ -162,8 +183,6 @@ func Open(opts Options) (*Engine, error) {
 		unflushed = append(unflushed, n)
 	}
 
-	// Replay unflushed WAL segments. The highest becomes the active memtable; any
-	// earlier ones are immutable memtables to be re-flushed (a crash left them behind).
 	var (
 		maxSeq    uint64
 		activeSet bool
@@ -203,7 +222,6 @@ func Open(opts Options) (*Engine, error) {
 		e.nextFileNum = 1
 	}
 
-	// With no recovered active memtable, start a fresh one and WAL segment.
 	if !activeSet {
 		num := e.nextFileNum
 		w, _, err := OpenWAL(filepath.Join(opts.DataDir, walName(num)), opts.SyncWrites)
@@ -224,7 +242,7 @@ func Open(opts Options) (*Engine, error) {
 
 	e.flusherWG.Add(1)
 	go e.flushLoop()
-	if len(e.imms) > 0 {
+	if len(e.imms) > 0 || len(e.tables) >= e.compactionMinThreshold {
 		e.signalFlush()
 	}
 
@@ -233,7 +251,7 @@ func Open(opts Options) (*Engine, error) {
 		"sstables", len(e.tables),
 		"recovered_immutables", len(e.imms),
 		"active_wal", walName(e.walNum),
-		"next_seq", maxSeq+1,
+		"next_seq", e.seq+1,
 		"sync_writes", opts.SyncWrites,
 	)
 	return e, nil
@@ -287,7 +305,6 @@ func (e *Engine) write(kind Kind, key, value []byte) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Backpressure: block while too many memtables await flush.
 	for !e.closed && e.flushErr == nil && len(e.imms) >= maxImmutablesBeforeStall {
 		e.flushCond.Wait()
 	}
@@ -313,8 +330,7 @@ func (e *Engine) write(kind Kind, key, value []byte) error {
 	return nil
 }
 
-// rotateLocked seals the active memtable into the immutable queue and starts a fresh
-// active memtable and WAL segment. The caller must hold e.mu.
+// rotateLocked seals the active memtable and starts a fresh one. Caller holds e.mu.
 func (e *Engine) rotateLocked() error {
 	if e.mem.Len() == 0 {
 		return nil
@@ -347,38 +363,42 @@ func (e *Engine) Put(key, value []byte) error { return e.write(KindSet, key, val
 func (e *Engine) Delete(key []byte) error { return e.write(KindDelete, key, nil) }
 
 // Get returns the value for key, or ErrNotFound if it is absent or deleted. It merges
-// the active memtable, the immutable memtables, and the SSTables in recency order.
+// the active memtable, the immutable memtables, and the SSTables. The memtable and
+// immutable memtables are strictly newer than any SSTable, so a hit there is
+// authoritative; among SSTables the record with the highest sequence number wins.
 func (e *Engine) Get(key []byte) ([]byte, error) {
 	if len(key) == 0 {
 		return nil, ErrEmptyKey
 	}
 
-	e.mu.Lock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	if e.closed {
-		e.mu.Unlock()
 		return nil, ErrClosed
 	}
-	mem := e.mem
-	imms := e.imms
-	tables := e.tables
-	e.mu.Unlock()
 
-	if rec, ok := mem.Get(key); ok {
+	if rec, ok := e.mem.Get(key); ok {
 		return interpretRecord(rec)
 	}
-	for i := len(imms) - 1; i >= 0; i-- {
-		if rec, ok := imms[i].mem.Get(key); ok {
+	for i := len(e.imms) - 1; i >= 0; i-- {
+		if rec, ok := e.imms[i].mem.Get(key); ok {
 			return interpretRecord(rec)
 		}
 	}
-	for i := len(tables) - 1; i >= 0; i-- {
-		rec, ok, err := tables[i].st.Get(key)
+	var best Record
+	found := false
+	for i := range e.tables {
+		rec, ok, err := e.tables[i].st.Get(key)
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			return interpretRecord(rec)
+		if ok && (!found || rec.Seq > best.Seq) {
+			best = rec
+			found = true
 		}
+	}
+	if found {
+		return interpretRecord(best)
 	}
 	return nil, ErrNotFound
 }
@@ -391,7 +411,7 @@ func interpretRecord(rec Record) ([]byte, error) {
 }
 
 // Flush seals the active memtable and blocks until every pending memtable has been
-// written to an SSTable. It is primarily useful in tests and for clean checkpoints.
+// written to an SSTable.
 func (e *Engine) Flush() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -419,6 +439,7 @@ func (e *Engine) flushLoop() {
 			return
 		case <-e.flushCh:
 			e.drainImmutables()
+			e.maybeCompact()
 		}
 	}
 }
@@ -435,6 +456,7 @@ func (e *Engine) drainImmutables() {
 		tableNum := e.nextFileNum
 		e.nextFileNum++
 		dir := e.dir
+		cache := e.cache
 		e.mu.Unlock()
 
 		path := filepath.Join(dir, sstName(tableNum))
@@ -443,14 +465,18 @@ func (e *Engine) drainImmutables() {
 			e.failFlush(err)
 			return
 		}
-		st, err := OpenSSTable(path)
+		st, err := OpenSSTableWithCache(path, tableNum, cache)
 		if err != nil {
 			e.failFlush(err)
 			return
 		}
+		var sz int64
+		if fi, serr := os.Stat(path); serr == nil {
+			sz = fi.Size()
+		}
 
 		e.mu.Lock()
-		e.tables = append(e.tables, tableRef{num: tableNum, st: st})
+		e.tables = append(e.tables, tableRef{num: tableNum, st: st, size: sz})
 		e.lastFlushedWAL = max(e.lastFlushedWAL, job.walNum)
 		if err := e.persistManifestLocked(); err != nil {
 			e.tables = e.tables[:len(e.tables)-1]
@@ -468,6 +494,128 @@ func (e *Engine) drainImmutables() {
 	}
 }
 
+// maybeCompact merges similarly sized SSTables while any group qualifies.
+func (e *Engine) maybeCompact() {
+	for {
+		e.mu.Lock()
+		if e.closed || e.flushErr != nil {
+			e.mu.Unlock()
+			return
+		}
+		bucket := getSizeTieredBucket(e.tables, e.compactionMinThreshold)
+		if bucket == nil {
+			e.mu.Unlock()
+			return
+		}
+		full := len(bucket) == len(e.tables)
+		outNum := e.nextFileNum
+		e.nextFileNum++
+		dir := e.dir
+		cache := e.cache
+		e.mu.Unlock()
+
+		outPath := filepath.Join(dir, sstName(outNum))
+		sts := make([]*SSTable, len(bucket))
+		var estBytes int64
+		for i := range bucket {
+			sts[i] = bucket[i].st
+			estBytes += bucket[i].size
+		}
+		expected := int(estBytes / 32)
+		if expected < 1 {
+			expected = 1
+		}
+
+		w, err := NewSSTableWriter(outPath, expected)
+		if err != nil {
+			e.failFlush(err)
+			return
+		}
+		written, err := mergeTables(sts, full, w)
+		if err != nil {
+			w.Abort()
+			e.failFlush(err)
+			return
+		}
+
+		// A full compaction can delete every key, leaving nothing to write. Drop the
+		// bucket without creating an empty table rather than churning a useless file.
+		if written == 0 {
+			w.Abort()
+			e.mu.Lock()
+			orig := e.tables
+			e.tables = removeTables(e.tables, bucket)
+			if err := e.persistManifestLocked(); err != nil {
+				e.tables = orig
+				e.mu.Unlock()
+				e.failFlush(err)
+				return
+			}
+			e.mu.Unlock()
+			for _, t := range bucket {
+				_ = t.st.Close()
+				_ = os.Remove(filepath.Join(dir, sstName(t.num)))
+			}
+			e.log.Info("compacted sstables to empty", "inputs", len(bucket))
+			continue
+		}
+
+		if err := w.Finish(); err != nil {
+			_ = os.Remove(outPath)
+			e.failFlush(err)
+			return
+		}
+		newSt, err := OpenSSTableWithCache(outPath, outNum, cache)
+		if err != nil {
+			e.failFlush(err)
+			return
+		}
+		var newSize int64
+		if fi, serr := os.Stat(outPath); serr == nil {
+			newSize = fi.Size()
+		}
+
+		e.mu.Lock()
+		orig := e.tables
+		kept := removeTables(e.tables, bucket)
+		kept = append(kept, tableRef{num: outNum, st: newSt, size: newSize})
+		sort.Slice(kept, func(i, j int) bool { return kept[i].num < kept[j].num })
+		e.tables = kept
+		if err := e.persistManifestLocked(); err != nil {
+			e.tables = orig
+			e.mu.Unlock()
+			_ = newSt.Close()
+			_ = os.Remove(outPath)
+			e.failFlush(err)
+			return
+		}
+		e.mu.Unlock()
+
+		// The swap held the write lock, so no reader is mid-read on the inputs, and
+		// new readers see the updated set. Releasing the input files is now safe.
+		for _, t := range bucket {
+			_ = t.st.Close()
+			_ = os.Remove(filepath.Join(dir, sstName(t.num)))
+		}
+		e.log.Info("compacted sstables", "inputs", len(bucket), "output", sstName(outNum), "dropped_tombstones", full)
+	}
+}
+
+// removeTables returns src with every table in drop removed, preserving order.
+func removeTables(src, drop []tableRef) []tableRef {
+	dropNums := make(map[uint64]bool, len(drop))
+	for _, t := range drop {
+		dropNums[t.num] = true
+	}
+	kept := make([]tableRef, 0, len(src))
+	for _, t := range src {
+		if !dropNums[t.num] {
+			kept = append(kept, t)
+		}
+	}
+	return kept
+}
+
 func (e *Engine) failFlush(err error) {
 	e.mu.Lock()
 	if e.flushErr == nil {
@@ -475,7 +623,7 @@ func (e *Engine) failFlush(err error) {
 	}
 	e.flushCond.Broadcast()
 	e.mu.Unlock()
-	e.log.Error("flush failed", "error", err)
+	e.log.Error("background flush or compaction failed", "error", err)
 }
 
 func (e *Engine) persistManifestLocked() error {
@@ -513,8 +661,8 @@ func writeSSTableFromMemtable(path string, mem *Memtable) error {
 
 // Sync flushes the active WAL segment to stable storage.
 func (e *Engine) Sync() error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	if e.closed {
 		return ErrClosed
 	}
@@ -523,8 +671,8 @@ func (e *Engine) Sync() error {
 
 // Stats returns a snapshot of engine counters.
 func (e *Engine) Stats() Stats {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return Stats{
 		Keys:        e.mem.Len(),
 		ApproxBytes: e.mem.ApproxSize(),
@@ -534,9 +682,9 @@ func (e *Engine) Stats() Stats {
 	}
 }
 
-// Close flushes all pending memtables, stops the background flusher, and releases
-// file handles. The active memtable is not flushed; its WAL segment is replayed on
-// the next Open. Close is idempotent.
+// Close flushes all pending memtables, stops the background worker, and releases file
+// handles. The active memtable is not flushed; its WAL segment is replayed on the next
+// Open. Close is idempotent.
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	if e.closed {
