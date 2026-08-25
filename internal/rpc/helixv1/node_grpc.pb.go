@@ -19,23 +19,27 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NodeService_Get_FullMethodName     = "/helix.v1.NodeService/Get"
-	NodeService_Put_FullMethodName     = "/helix.v1.NodeService/Put"
-	NodeService_PutHint_FullMethodName = "/helix.v1.NodeService/PutHint"
+	NodeService_Get_FullMethodName           = "/helix.v1.NodeService/Get"
+	NodeService_Put_FullMethodName           = "/helix.v1.NodeService/Put"
+	NodeService_PutHint_FullMethodName       = "/helix.v1.NodeService/PutHint"
+	NodeService_Merkle_FullMethodName        = "/helix.v1.NodeService/Merkle"
+	NodeService_BucketEntries_FullMethodName = "/helix.v1.NodeService/BucketEntries"
 )
 
 // NodeServiceClient is the client API for NodeService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// NodeService is the node-to-node data plane. A coordinator on one node calls these on the
-// replicas in a key's preference list. Application errors are returned as gRPC status codes,
-// so the response messages carry only data. Control-plane RPCs for anti-entropy (Merkle
-// tree exchange) and SWIM membership are added in later parts.
+// NodeService is the node-to-node plane. A coordinator on one node calls the data-plane RPCs
+// (Get, Put, PutHint) on the replicas in a key's preference list, and the anti-entropy driver
+// calls Merkle and BucketEntries to reconcile divergent replicas. Application errors are
+// returned as gRPC status codes, so response messages carry only data.
 type NodeServiceClient interface {
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
 	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutResponse, error)
 	PutHint(ctx context.Context, in *PutHintRequest, opts ...grpc.CallOption) (*PutHintResponse, error)
+	Merkle(ctx context.Context, in *MerkleRequest, opts ...grpc.CallOption) (*MerkleResponse, error)
+	BucketEntries(ctx context.Context, in *BucketEntriesRequest, opts ...grpc.CallOption) (*BucketEntriesResponse, error)
 }
 
 type nodeServiceClient struct {
@@ -76,18 +80,40 @@ func (c *nodeServiceClient) PutHint(ctx context.Context, in *PutHintRequest, opt
 	return out, nil
 }
 
+func (c *nodeServiceClient) Merkle(ctx context.Context, in *MerkleRequest, opts ...grpc.CallOption) (*MerkleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MerkleResponse)
+	err := c.cc.Invoke(ctx, NodeService_Merkle_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) BucketEntries(ctx context.Context, in *BucketEntriesRequest, opts ...grpc.CallOption) (*BucketEntriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BucketEntriesResponse)
+	err := c.cc.Invoke(ctx, NodeService_BucketEntries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NodeServiceServer is the server API for NodeService service.
 // All implementations must embed UnimplementedNodeServiceServer
 // for forward compatibility.
 //
-// NodeService is the node-to-node data plane. A coordinator on one node calls these on the
-// replicas in a key's preference list. Application errors are returned as gRPC status codes,
-// so the response messages carry only data. Control-plane RPCs for anti-entropy (Merkle
-// tree exchange) and SWIM membership are added in later parts.
+// NodeService is the node-to-node plane. A coordinator on one node calls the data-plane RPCs
+// (Get, Put, PutHint) on the replicas in a key's preference list, and the anti-entropy driver
+// calls Merkle and BucketEntries to reconcile divergent replicas. Application errors are
+// returned as gRPC status codes, so response messages carry only data.
 type NodeServiceServer interface {
 	Get(context.Context, *GetRequest) (*GetResponse, error)
 	Put(context.Context, *PutRequest) (*PutResponse, error)
 	PutHint(context.Context, *PutHintRequest) (*PutHintResponse, error)
+	Merkle(context.Context, *MerkleRequest) (*MerkleResponse, error)
+	BucketEntries(context.Context, *BucketEntriesRequest) (*BucketEntriesResponse, error)
 	mustEmbedUnimplementedNodeServiceServer()
 }
 
@@ -106,6 +132,12 @@ func (UnimplementedNodeServiceServer) Put(context.Context, *PutRequest) (*PutRes
 }
 func (UnimplementedNodeServiceServer) PutHint(context.Context, *PutHintRequest) (*PutHintResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PutHint not implemented")
+}
+func (UnimplementedNodeServiceServer) Merkle(context.Context, *MerkleRequest) (*MerkleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Merkle not implemented")
+}
+func (UnimplementedNodeServiceServer) BucketEntries(context.Context, *BucketEntriesRequest) (*BucketEntriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BucketEntries not implemented")
 }
 func (UnimplementedNodeServiceServer) mustEmbedUnimplementedNodeServiceServer() {}
 func (UnimplementedNodeServiceServer) testEmbeddedByValue()                     {}
@@ -182,6 +214,42 @@ func _NodeService_PutHint_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeService_Merkle_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MerkleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).Merkle(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_Merkle_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).Merkle(ctx, req.(*MerkleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_BucketEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BucketEntriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).BucketEntries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_BucketEntries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).BucketEntries(ctx, req.(*BucketEntriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NodeService_ServiceDesc is the grpc.ServiceDesc for NodeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -200,6 +268,14 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PutHint",
 			Handler:    _NodeService_PutHint_Handler,
+		},
+		{
+			MethodName: "Merkle",
+			Handler:    _NodeService_Merkle_Handler,
+		},
+		{
+			MethodName: "BucketEntries",
+			Handler:    _NodeService_BucketEntries_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
