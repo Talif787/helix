@@ -15,6 +15,9 @@ type Replica interface {
 	// PutVersioned stores vv, reconciling it against any version the node already holds so
 	// a replica never regresses to an older or divergent value.
 	PutVersioned(ctx context.Context, key []byte, vv VersionedValue) error
+	// PutHint buffers vv for key on this node on behalf of intended, a replica that could
+	// not be reached. The hint is replayed to intended once it is reachable again.
+	PutHint(ctx context.Context, intended string, key []byte, vv VersionedValue) error
 }
 
 // Transport resolves a node id to a Replica. The in-process implementation looks the node
