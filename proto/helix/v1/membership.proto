@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package helix.v1;
+
+option go_package = "github.com/talifpathan/helix/internal/rpc/helixv1;helixv1";
+
+// MemberState mirrors the membership package's liveness states.
+enum MemberState {
+  MEMBER_STATE_ALIVE = 0;
+  MEMBER_STATE_SUSPECT = 1;
+  MEMBER_STATE_DEAD = 2;
+}
+
+// Update is one piece of membership news: a node id, the incarnation the news is about, and
+// the state. Gossip is a list of these piggybacked on every probe.
+message Update {
+  string id = 1;
+  uint64 incarnation = 2;
+  MemberState state = 3;
+}
+
+message PingRequest {
+  string from = 1;
+  string to = 2;
+  repeated Update gossip = 3;
+}
+
+message PingResponse {
+  repeated Update gossip = 1;
+}
+
+message PingReqRequest {
+  string from = 1;
+  string target = 2;
+  repeated Update gossip = 3;
+}
+
+message PingReqResponse {
+  repeated Update gossip = 1;
+}
+
+// MembershipService is the SWIM control plane: nodes probe each other directly (Ping) and,
+// when a direct probe fails, ask a relay to probe on their behalf (PingReq). Both carry
+// gossip so membership changes spread epidemically.
+service MembershipService {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc PingReq(PingReqRequest) returns (PingReqResponse);
+}
