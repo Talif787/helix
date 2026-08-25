@@ -130,6 +130,13 @@ func lwwPick(a, b VersionedValue) VersionedValue {
 	return b
 }
 
+// KeyVersion pairs a key with its versioned value. It is the unit exchanged by hinted
+// handoff and, later, anti-entropy repair.
+type KeyVersion struct {
+	Key   []byte
+	Value VersionedValue
+}
+
 // versionedWire is the JSON shape stored in the engine. JSON keeps the encoding simple
 // and robust: []byte becomes base64 and VectorClock becomes an object automatically.
 type versionedWire struct {
