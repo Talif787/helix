@@ -69,6 +69,38 @@ func (m *memReplica) hintCount() int {
 	return n
 }
 
+func (m *memReplica) entries(filter KeyFilter) []KeyVersion {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]KeyVersion, 0, len(m.data))
+	for k, vv := range m.data {
+		key := []byte(k)
+		if filter != nil && !filter(key) {
+			continue
+		}
+		out = append(out, KeyVersion{Key: key, Value: vv})
+	}
+	return out
+}
+
+func (m *memReplica) MerkleTree(_ context.Context, filter KeyFilter) (*MerkleTree, error) {
+	return BuildMerkleTree(m.entries(filter))
+}
+
+func (m *memReplica) BucketEntries(_ context.Context, buckets []int, filter KeyFilter) ([]KeyVersion, error) {
+	want := make(map[int]bool, len(buckets))
+	for _, b := range buckets {
+		want[b] = true
+	}
+	var out []KeyVersion
+	for _, kv := range m.entries(filter) {
+		if want[bucketOf(kv.Key)] {
+			out = append(out, kv)
+		}
+	}
+	return out, nil
+}
+
 func (m *memReplica) get(key string) (VersionedValue, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

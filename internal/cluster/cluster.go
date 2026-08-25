@@ -49,6 +49,7 @@ type Cluster struct {
 	tr    *InProcessTransport
 	coord *Coordinator
 	nodes map[string]*LocalNode
+	n     int
 	log   *slog.Logger
 }
 
@@ -91,6 +92,7 @@ func NewCluster(nodeIDs []string, opts Options) (*Cluster, error) {
 		ring:  NewRing(vnodes),
 		tr:    NewInProcessTransport(),
 		nodes: make(map[string]*LocalNode, len(nodeIDs)),
+		n:     n,
 		log:   opts.Logger,
 	}
 

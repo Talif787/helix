@@ -109,3 +109,61 @@ func (n *LocalNode) DeliverHints(ctx context.Context, tr Transport) int {
 
 // PendingHints returns how many hints this node currently holds, for tests and metrics.
 func (n *LocalNode) PendingHints() int { return n.hints.count() }
+
+// scanVersioned enumerates the node's live entries, decoding each stored value into a
+// VersionedValue and applying filter (nil accepts all). It is the basis for both the Merkle
+// tree and bucket extraction.
+func (n *LocalNode) scanVersioned(ctx context.Context, filter KeyFilter) ([]KeyVersion, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var out []KeyVersion
+	var scanErr error
+	err := n.eng.Scan(func(key, value []byte) bool {
+		if filter != nil && !filter(key) {
+			return true
+		}
+		vv, err := decodeVersioned(value)
+		if err != nil {
+			scanErr = err
+			return false
+		}
+		out = append(out, KeyVersion{Key: append([]byte(nil), key...), Value: vv})
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	return out, nil
+}
+
+// MerkleTree builds a Merkle tree over the node's filtered keys.
+func (n *LocalNode) MerkleTree(ctx context.Context, filter KeyFilter) (*MerkleTree, error) {
+	entries, err := n.scanVersioned(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	return BuildMerkleTree(entries)
+}
+
+// BucketEntries returns the node's filtered entries whose keys fall in any of buckets.
+func (n *LocalNode) BucketEntries(ctx context.Context, buckets []int, filter KeyFilter) ([]KeyVersion, error) {
+	entries, err := n.scanVersioned(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	want := make(map[int]bool, len(buckets))
+	for _, b := range buckets {
+		want[b] = true
+	}
+	out := entries[:0]
+	for _, kv := range entries {
+		if want[bucketOf(kv.Key)] {
+			out = append(out, kv)
+		}
+	}
+	return out, nil
+}
