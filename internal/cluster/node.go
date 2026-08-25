@@ -18,6 +18,35 @@ type LocalNode struct {
 	eng   *storage.Engine
 	mu    sync.Mutex
 	hints *hintStore
+	pref  func(key []byte, n int) []string // resolves a key's preference list, for repair scoping
+}
+
+// SetPreferenceFunc gives the node a way to compute a key's preference list, which it needs
+// to turn a RepairScope into a concrete key predicate. The cluster wires this to the ring's
+// lookup. If it is never set, repair scoping is skipped and a Merkle tree covers all keys.
+func (n *LocalNode) SetPreferenceFunc(fn func(key []byte, n int) []string) {
+	n.pref = fn
+}
+
+// scopeFilter turns a RepairScope into a key predicate using the node's preference function.
+// A key is in scope when both named nodes are in its preference list. With no preference
+// function, it returns nil (accept all keys).
+func (n *LocalNode) scopeFilter(scope RepairScope) KeyFilter {
+	if n.pref == nil {
+		return nil
+	}
+	return func(key []byte) bool {
+		inA, inB := false, false
+		for _, id := range n.pref(key, scope.N) {
+			if id == scope.NodeA {
+				inA = true
+			}
+			if id == scope.NodeB {
+				inB = true
+			}
+		}
+		return inA && inB
+	}
 }
 
 // NewLocalNode wraps eng as the node identified by id.
@@ -141,8 +170,8 @@ func (n *LocalNode) scanVersioned(ctx context.Context, filter KeyFilter) ([]KeyV
 }
 
 // MerkleTree builds a Merkle tree over the node's filtered keys.
-func (n *LocalNode) MerkleTree(ctx context.Context, filter KeyFilter) (*MerkleTree, error) {
-	entries, err := n.scanVersioned(ctx, filter)
+func (n *LocalNode) MerkleTree(ctx context.Context, scope RepairScope) (*MerkleTree, error) {
+	entries, err := n.scanVersioned(ctx, n.scopeFilter(scope))
 	if err != nil {
 		return nil, err
 	}
@@ -150,8 +179,8 @@ func (n *LocalNode) MerkleTree(ctx context.Context, filter KeyFilter) (*MerkleTr
 }
 
 // BucketEntries returns the node's filtered entries whose keys fall in any of buckets.
-func (n *LocalNode) BucketEntries(ctx context.Context, buckets []int, filter KeyFilter) ([]KeyVersion, error) {
-	entries, err := n.scanVersioned(ctx, filter)
+func (n *LocalNode) BucketEntries(ctx context.Context, buckets []int, scope RepairScope) ([]KeyVersion, error) {
+	entries, err := n.scanVersioned(ctx, n.scopeFilter(scope))
 	if err != nil {
 		return nil, err
 	}

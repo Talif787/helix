@@ -45,3 +45,43 @@ func fromProtoVersioned(pv *helixv1.VersionedValue) cluster.VersionedValue {
 		Deleted:   pv.GetDeleted(),
 	}
 }
+
+func toProtoScope(s cluster.RepairScope) *helixv1.RepairScope {
+	return &helixv1.RepairScope{NodeA: s.NodeA, NodeB: s.NodeB, N: int32(s.N)}
+}
+
+func fromProtoScope(ps *helixv1.RepairScope) cluster.RepairScope {
+	return cluster.RepairScope{NodeA: ps.GetNodeA(), NodeB: ps.GetNodeB(), N: int(ps.GetN())}
+}
+
+func toProtoKeyVersions(kvs []cluster.KeyVersion) []*helixv1.KeyVersion {
+	out := make([]*helixv1.KeyVersion, 0, len(kvs))
+	for _, kv := range kvs {
+		out = append(out, &helixv1.KeyVersion{Key: kv.Key, Value: toProtoVersioned(kv.Value)})
+	}
+	return out
+}
+
+func fromProtoKeyVersions(pkvs []*helixv1.KeyVersion) []cluster.KeyVersion {
+	out := make([]cluster.KeyVersion, 0, len(pkvs))
+	for _, pkv := range pkvs {
+		out = append(out, cluster.KeyVersion{Key: pkv.GetKey(), Value: fromProtoVersioned(pkv.GetValue())})
+	}
+	return out
+}
+
+func toInt32s(xs []int) []int32 {
+	out := make([]int32, len(xs))
+	for i, x := range xs {
+		out[i] = int32(x)
+	}
+	return out
+}
+
+func fromInt32s(xs []int32) []int {
+	out := make([]int, len(xs))
+	for i, x := range xs {
+		out[i] = int(x)
+	}
+	return out
+}

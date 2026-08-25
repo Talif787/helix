@@ -61,3 +61,21 @@ func (s *NodeServer) PutHint(ctx context.Context, req *helixv1.PutHintRequest) (
 	}
 	return &helixv1.PutHintResponse{}, nil
 }
+
+// Merkle builds and returns this node's Merkle tree over the scoped keys, serialized.
+func (s *NodeServer) Merkle(ctx context.Context, req *helixv1.MerkleRequest) (*helixv1.MerkleResponse, error) {
+	tree, err := s.backend.MerkleTree(ctx, fromProtoScope(req.GetScope()))
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &helixv1.MerkleResponse{Tree: tree.Serialize()}, nil
+}
+
+// BucketEntries returns this node's scoped entries whose keys fall in the requested buckets.
+func (s *NodeServer) BucketEntries(ctx context.Context, req *helixv1.BucketEntriesRequest) (*helixv1.BucketEntriesResponse, error) {
+	entries, err := s.backend.BucketEntries(ctx, fromInt32s(req.GetBuckets()), fromProtoScope(req.GetScope()))
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &helixv1.BucketEntriesResponse{Entries: toProtoKeyVersions(entries)}, nil
+}
