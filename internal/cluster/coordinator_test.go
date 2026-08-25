@@ -69,31 +69,29 @@ func (m *memReplica) hintCount() int {
 	return n
 }
 
-func (m *memReplica) entries(filter KeyFilter) []KeyVersion {
+func (m *memReplica) entries() []KeyVersion {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]KeyVersion, 0, len(m.data))
 	for k, vv := range m.data {
-		key := []byte(k)
-		if filter != nil && !filter(key) {
-			continue
-		}
-		out = append(out, KeyVersion{Key: key, Value: vv})
+		out = append(out, KeyVersion{Key: []byte(k), Value: vv})
 	}
 	return out
 }
 
-func (m *memReplica) MerkleTree(_ context.Context, filter KeyFilter) (*MerkleTree, error) {
-	return BuildMerkleTree(m.entries(filter))
+// The mock ignores RepairScope (it is not used in scoped anti-entropy tests); it just
+// satisfies the Replica interface over all its data.
+func (m *memReplica) MerkleTree(_ context.Context, _ RepairScope) (*MerkleTree, error) {
+	return BuildMerkleTree(m.entries())
 }
 
-func (m *memReplica) BucketEntries(_ context.Context, buckets []int, filter KeyFilter) ([]KeyVersion, error) {
+func (m *memReplica) BucketEntries(_ context.Context, buckets []int, _ RepairScope) ([]KeyVersion, error) {
 	want := make(map[int]bool, len(buckets))
 	for _, b := range buckets {
 		want[b] = true
 	}
 	var out []KeyVersion
-	for _, kv := range m.entries(filter) {
+	for _, kv := range m.entries() {
 		if want[bucketOf(kv.Key)] {
 			out = append(out, kv)
 		}

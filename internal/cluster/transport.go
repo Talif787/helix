@@ -23,12 +23,13 @@ type Replica interface {
 	// PutHint buffers vv for key on this node on behalf of intended, a replica that could
 	// not be reached. The hint is replayed to intended once it is reachable again.
 	PutHint(ctx context.Context, intended string, key []byte, vv VersionedValue) error
-	// MerkleTree builds a Merkle tree over the node's keys accepted by filter, for
-	// anti-entropy comparison.
-	MerkleTree(ctx context.Context, filter KeyFilter) (*MerkleTree, error)
-	// BucketEntries returns the node's entries, accepted by filter, whose keys fall in any
-	// of the given leaf buckets.
-	BucketEntries(ctx context.Context, buckets []int, filter KeyFilter) ([]KeyVersion, error)
+	// MerkleTree builds a Merkle tree over the node's keys within scope, for anti-entropy
+	// comparison. scope names the two nodes and replication factor whose co-replicated keys
+	// the repair covers; it is serializable so the same call works over the network.
+	MerkleTree(ctx context.Context, scope RepairScope) (*MerkleTree, error)
+	// BucketEntries returns the node's entries within scope whose keys fall in any of the
+	// given leaf buckets.
+	BucketEntries(ctx context.Context, buckets []int, scope RepairScope) ([]KeyVersion, error)
 }
 
 // Transport resolves a node id to a Replica. The in-process implementation looks the node

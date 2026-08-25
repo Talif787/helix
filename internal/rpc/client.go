@@ -4,9 +4,7 @@ import (
 	"context"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
 
 	"github.com/talifpathan/helix/internal/cluster"
 	helixv1 "github.com/talifpathan/helix/internal/rpc/helixv1"
@@ -64,13 +62,25 @@ func (c *NodeClient) PutHint(ctx context.Context, intended string, key []byte, v
 	return err
 }
 
-// MerkleTree implements cluster.Replica. Anti-entropy over the wire is added in a later
-// part; until then this reports Unimplemented rather than silently doing nothing.
-func (c *NodeClient) MerkleTree(_ context.Context, _ cluster.KeyFilter) (*cluster.MerkleTree, error) {
-	return nil, status.Error(codes.Unimplemented, "merkle exchange over gRPC arrives in a later part")
+// MerkleTree implements cluster.Replica, fetching the remote node's tree for the scope and
+// rebuilding it from the serialized hashes.
+func (c *NodeClient) MerkleTree(ctx context.Context, scope cluster.RepairScope) (*cluster.MerkleTree, error) {
+	resp, err := c.cli.Merkle(ctx, &helixv1.MerkleRequest{Scope: toProtoScope(scope)})
+	if err != nil {
+		return nil, err
+	}
+	return cluster.DeserializeMerkleTree(resp.GetTree())
 }
 
-// BucketEntries implements cluster.Replica. See MerkleTree.
-func (c *NodeClient) BucketEntries(_ context.Context, _ []int, _ cluster.KeyFilter) ([]cluster.KeyVersion, error) {
-	return nil, status.Error(codes.Unimplemented, "bucket exchange over gRPC arrives in a later part")
+// BucketEntries implements cluster.Replica, fetching the remote node's scoped entries for the
+// requested buckets.
+func (c *NodeClient) BucketEntries(ctx context.Context, buckets []int, scope cluster.RepairScope) ([]cluster.KeyVersion, error) {
+	resp, err := c.cli.BucketEntries(ctx, &helixv1.BucketEntriesRequest{
+		Scope:   toProtoScope(scope),
+		Buckets: toInt32s(buckets),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return fromProtoKeyVersions(resp.GetEntries()), nil
 }

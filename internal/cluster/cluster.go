@@ -115,6 +115,12 @@ func NewCluster(nodeIDs []string, opts Options) (*Cluster, error) {
 		c.ring.Add(id)
 	}
 
+	// Give every node the ring's lookup so it can scope anti-entropy repairs to co-replicated
+	// keys. This is set after all nodes are added, so the ring is complete.
+	for _, node := range c.nodes {
+		node.SetPreferenceFunc(c.ring.LookupN)
+	}
+
 	c.coord = NewCoordinator(c.ring, c.tr, n, r, w, maxHints, opts.Now, opts.Logger)
 	c.log.Info("cluster started", "nodes", len(nodeIDs), "vnodes", vnodes, "n", n, "r", r, "w", w, "max_hints", maxHints)
 	return c, nil
