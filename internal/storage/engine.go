@@ -410,6 +410,61 @@ func interpretRecord(rec Record) ([]byte, error) {
 	return cloneBytes(rec.Value), nil
 }
 
+// Scan calls fn for every live key in ascending key order, passing a copy of the key and
+// value. It merges the active memtable, the immutable memtables, and the SSTables, taking
+// the highest sequence number per key and skipping engine-level tombstones. Iteration stops
+// early if fn returns false. Scan holds a read lock for its whole duration, so fn must not
+// call back into the engine.
+func (e *Engine) Scan(fn func(key, value []byte) bool) error {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.closed {
+		return ErrClosed
+	}
+
+	best := make(map[string]Record)
+	consider := func(r Record) {
+		k := string(r.Key)
+		if cur, ok := best[k]; !ok || r.Seq > cur.Seq {
+			best[k] = r
+		}
+	}
+
+	e.mem.Scan(func(r Record) bool { consider(r); return true })
+	for _, job := range e.imms {
+		job.mem.Scan(func(r Record) bool { consider(r); return true })
+	}
+	for i := range e.tables {
+		it := e.tables[i].st.Iterator()
+		for {
+			r, ok := it.Next()
+			if !ok {
+				break
+			}
+			consider(r)
+		}
+		if err := it.Err(); err != nil {
+			return err
+		}
+	}
+
+	keys := make([]string, 0, len(best))
+	for k := range best {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		r := best[k]
+		if r.Kind == KindDelete {
+			continue
+		}
+		if !fn([]byte(k), cloneBytes(r.Value)) {
+			break
+		}
+	}
+	return nil
+}
+
 // Flush seals the active memtable and blocks until every pending memtable has been
 // written to an SSTable.
 func (e *Engine) Flush() error {
