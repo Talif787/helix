@@ -28,6 +28,9 @@ type Options struct {
 	N int
 	R int
 	W int
+	// MaxHints is how many fallback nodes past the preference list may hold hinted writes
+	// during a failure. Zero uses the default (equal to N).
+	MaxHints int
 	// Storage is applied to every node as a template; DataDir and Logger are overridden
 	// per node.
 	Storage storage.Options
@@ -76,6 +79,13 @@ func NewCluster(nodeIDs []string, opts Options) (*Cluster, error) {
 	if r > n || w > n {
 		return nil, fmt.Errorf("cluster: R (%d) and W (%d) must not exceed N (%d)", r, w, n)
 	}
+	maxHints := opts.MaxHints
+	if maxHints == 0 {
+		maxHints = n
+	}
+	if maxHints < 0 {
+		maxHints = 0
+	}
 
 	c := &Cluster{
 		ring:  NewRing(vnodes),
@@ -103,8 +113,8 @@ func NewCluster(nodeIDs []string, opts Options) (*Cluster, error) {
 		c.ring.Add(id)
 	}
 
-	c.coord = NewCoordinator(c.ring, c.tr, n, r, w, opts.Now, opts.Logger)
-	c.log.Info("cluster started", "nodes", len(nodeIDs), "vnodes", vnodes, "n", n, "r", r, "w", w)
+	c.coord = NewCoordinator(c.ring, c.tr, n, r, w, maxHints, opts.Now, opts.Logger)
+	c.log.Info("cluster started", "nodes", len(nodeIDs), "vnodes", vnodes, "n", n, "r", r, "w", w, "max_hints", maxHints)
 	return c, nil
 }
 
@@ -152,6 +162,27 @@ func (c *Cluster) Node(id string) (*LocalNode, bool) {
 
 // Nodes returns the node ids in sorted order.
 func (c *Cluster) Nodes() []string { return c.ring.Nodes() }
+
+// DeliverHints has every node attempt to replay its buffered hints to the intended nodes
+// that are now reachable, returning the total number of hints delivered. A real deployment
+// would call this periodically from a background loop; it is exposed directly so tests and
+// the demo can trigger it deterministically.
+func (c *Cluster) DeliverHints(ctx context.Context) int {
+	delivered := 0
+	for _, n := range c.nodes {
+		delivered += n.DeliverHints(ctx, c.tr)
+	}
+	return delivered
+}
+
+// PendingHints returns the total number of hints buffered across all nodes.
+func (c *Cluster) PendingHints() int {
+	total := 0
+	for _, n := range c.nodes {
+		total += n.PendingHints()
+	}
+	return total
+}
 
 // Close closes every node's storage engine, returning the first error encountered.
 func (c *Cluster) Close() error {
