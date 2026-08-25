@@ -439,6 +439,323 @@ func (*PutHintResponse) Descriptor() ([]byte, []int) {
 	return file_proto_helix_v1_node_proto_rawDescGZIP(), []int{7}
 }
 
+// RepairScope names the keys an anti-entropy round covers: those co-replicated by node_a and
+// node_b at replication factor n. The receiving node turns it into a key predicate using its
+// own ring view.
+type RepairScope struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	NodeA string `protobuf:"bytes,1,opt,name=node_a,json=nodeA,proto3" json:"node_a,omitempty"`
+	NodeB string `protobuf:"bytes,2,opt,name=node_b,json=nodeB,proto3" json:"node_b,omitempty"`
+	N     int32  `protobuf:"varint,3,opt,name=n,proto3" json:"n,omitempty"`
+}
+
+func (x *RepairScope) Reset() {
+	*x = RepairScope{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_proto_helix_v1_node_proto_msgTypes[8]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *RepairScope) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RepairScope) ProtoMessage() {}
+
+func (x *RepairScope) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_helix_v1_node_proto_msgTypes[8]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RepairScope.ProtoReflect.Descriptor instead.
+func (*RepairScope) Descriptor() ([]byte, []int) {
+	return file_proto_helix_v1_node_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RepairScope) GetNodeA() string {
+	if x != nil {
+		return x.NodeA
+	}
+	return ""
+}
+
+func (x *RepairScope) GetNodeB() string {
+	if x != nil {
+		return x.NodeB
+	}
+	return ""
+}
+
+func (x *RepairScope) GetN() int32 {
+	if x != nil {
+		return x.N
+	}
+	return 0
+}
+
+type KeyVersion struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Key   []byte          `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value *VersionedValue `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+}
+
+func (x *KeyVersion) Reset() {
+	*x = KeyVersion{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_proto_helix_v1_node_proto_msgTypes[9]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *KeyVersion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KeyVersion) ProtoMessage() {}
+
+func (x *KeyVersion) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_helix_v1_node_proto_msgTypes[9]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KeyVersion.ProtoReflect.Descriptor instead.
+func (*KeyVersion) Descriptor() ([]byte, []int) {
+	return file_proto_helix_v1_node_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *KeyVersion) GetKey() []byte {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+func (x *KeyVersion) GetValue() *VersionedValue {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+type MerkleRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Scope *RepairScope `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+}
+
+func (x *MerkleRequest) Reset() {
+	*x = MerkleRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_proto_helix_v1_node_proto_msgTypes[10]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MerkleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MerkleRequest) ProtoMessage() {}
+
+func (x *MerkleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_helix_v1_node_proto_msgTypes[10]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MerkleRequest.ProtoReflect.Descriptor instead.
+func (*MerkleRequest) Descriptor() ([]byte, []int) {
+	return file_proto_helix_v1_node_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *MerkleRequest) GetScope() *RepairScope {
+	if x != nil {
+		return x.Scope
+	}
+	return nil
+}
+
+type MerkleResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Tree []byte `protobuf:"bytes,1,opt,name=tree,proto3" json:"tree,omitempty"` // serialized Merkle tree node hashes
+}
+
+func (x *MerkleResponse) Reset() {
+	*x = MerkleResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_proto_helix_v1_node_proto_msgTypes[11]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MerkleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MerkleResponse) ProtoMessage() {}
+
+func (x *MerkleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_helix_v1_node_proto_msgTypes[11]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MerkleResponse.ProtoReflect.Descriptor instead.
+func (*MerkleResponse) Descriptor() ([]byte, []int) {
+	return file_proto_helix_v1_node_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *MerkleResponse) GetTree() []byte {
+	if x != nil {
+		return x.Tree
+	}
+	return nil
+}
+
+type BucketEntriesRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Scope   *RepairScope `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	Buckets []int32      `protobuf:"varint,2,rep,packed,name=buckets,proto3" json:"buckets,omitempty"`
+}
+
+func (x *BucketEntriesRequest) Reset() {
+	*x = BucketEntriesRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_proto_helix_v1_node_proto_msgTypes[12]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *BucketEntriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BucketEntriesRequest) ProtoMessage() {}
+
+func (x *BucketEntriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_helix_v1_node_proto_msgTypes[12]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BucketEntriesRequest.ProtoReflect.Descriptor instead.
+func (*BucketEntriesRequest) Descriptor() ([]byte, []int) {
+	return file_proto_helix_v1_node_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *BucketEntriesRequest) GetScope() *RepairScope {
+	if x != nil {
+		return x.Scope
+	}
+	return nil
+}
+
+func (x *BucketEntriesRequest) GetBuckets() []int32 {
+	if x != nil {
+		return x.Buckets
+	}
+	return nil
+}
+
+type BucketEntriesResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Entries []*KeyVersion `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+}
+
+func (x *BucketEntriesResponse) Reset() {
+	*x = BucketEntriesResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_proto_helix_v1_node_proto_msgTypes[13]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *BucketEntriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BucketEntriesResponse) ProtoMessage() {}
+
+func (x *BucketEntriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_helix_v1_node_proto_msgTypes[13]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BucketEntriesResponse.ProtoReflect.Descriptor instead.
+func (*BucketEntriesResponse) Descriptor() ([]byte, []int) {
+	return file_proto_helix_v1_node_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *BucketEntriesResponse) GetEntries() []*KeyVersion {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
 var File_proto_helix_v1_node_proto protoreflect.FileDescriptor
 
 var file_proto_helix_v1_node_proto_rawDesc = []byte{
@@ -483,23 +800,58 @@ var file_proto_helix_v1_node_proto_rawDesc = []byte{
 	0x32, 0x18, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x56, 0x65, 0x72, 0x73,
 	0x69, 0x6f, 0x6e, 0x65, 0x64, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75,
 	0x65, 0x22, 0x11, 0x0a, 0x0f, 0x50, 0x75, 0x74, 0x48, 0x69, 0x6e, 0x74, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x32, 0xb5, 0x01, 0x0a, 0x0b, 0x4e, 0x6f, 0x64, 0x65, 0x53, 0x65, 0x72,
-	0x76, 0x69, 0x63, 0x65, 0x12, 0x32, 0x0a, 0x03, 0x47, 0x65, 0x74, 0x12, 0x14, 0x2e, 0x68, 0x65,
-	0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
-	0x74, 0x1a, 0x15, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74,
-	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x32, 0x0a, 0x03, 0x50, 0x75, 0x74, 0x12,
-	0x14, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x75, 0x74, 0x52, 0x65,
-	0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x15, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31,
-	0x2e, 0x50, 0x75, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3e, 0x0a, 0x07,
-	0x50, 0x75, 0x74, 0x48, 0x69, 0x6e, 0x74, 0x12, 0x18, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e,
-	0x76, 0x31, 0x2e, 0x50, 0x75, 0x74, 0x48, 0x69, 0x6e, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
-	0x74, 0x1a, 0x19, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x75, 0x74,
-	0x48, 0x69, 0x6e, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x3b, 0x5a, 0x39,
-	0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x74, 0x61, 0x6c, 0x69, 0x66,
-	0x70, 0x61, 0x74, 0x68, 0x61, 0x6e, 0x2f, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2f, 0x69, 0x6e, 0x74,
-	0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2f, 0x72, 0x70, 0x63, 0x2f, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x76,
-	0x31, 0x3b, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x76, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x33,
+	0x6f, 0x6e, 0x73, 0x65, 0x22, 0x49, 0x0a, 0x0b, 0x52, 0x65, 0x70, 0x61, 0x69, 0x72, 0x53, 0x63,
+	0x6f, 0x70, 0x65, 0x12, 0x15, 0x0a, 0x06, 0x6e, 0x6f, 0x64, 0x65, 0x5f, 0x61, 0x18, 0x01, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x05, 0x6e, 0x6f, 0x64, 0x65, 0x41, 0x12, 0x15, 0x0a, 0x06, 0x6e, 0x6f,
+	0x64, 0x65, 0x5f, 0x62, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x6e, 0x6f, 0x64, 0x65,
+	0x42, 0x12, 0x0c, 0x0a, 0x01, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x05, 0x52, 0x01, 0x6e, 0x22,
+	0x4e, 0x0a, 0x0a, 0x4b, 0x65, 0x79, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x12, 0x10, 0x0a,
+	0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12,
+	0x2e, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x18,
+	0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f,
+	0x6e, 0x65, 0x64, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x22,
+	0x3c, 0x0a, 0x0d, 0x4d, 0x65, 0x72, 0x6b, 0x6c, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x12, 0x2b, 0x0a, 0x05, 0x73, 0x63, 0x6f, 0x70, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32,
+	0x15, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x61, 0x69,
+	0x72, 0x53, 0x63, 0x6f, 0x70, 0x65, 0x52, 0x05, 0x73, 0x63, 0x6f, 0x70, 0x65, 0x22, 0x24, 0x0a,
+	0x0e, 0x4d, 0x65, 0x72, 0x6b, 0x6c, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
+	0x12, 0x0a, 0x04, 0x74, 0x72, 0x65, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x74,
+	0x72, 0x65, 0x65, 0x22, 0x5d, 0x0a, 0x14, 0x42, 0x75, 0x63, 0x6b, 0x65, 0x74, 0x45, 0x6e, 0x74,
+	0x72, 0x69, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x2b, 0x0a, 0x05, 0x73,
+	0x63, 0x6f, 0x70, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x15, 0x2e, 0x68, 0x65, 0x6c,
+	0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x61, 0x69, 0x72, 0x53, 0x63, 0x6f, 0x70,
+	0x65, 0x52, 0x05, 0x73, 0x63, 0x6f, 0x70, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x62, 0x75, 0x63, 0x6b,
+	0x65, 0x74, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x05, 0x52, 0x07, 0x62, 0x75, 0x63, 0x6b, 0x65,
+	0x74, 0x73, 0x22, 0x47, 0x0a, 0x15, 0x42, 0x75, 0x63, 0x6b, 0x65, 0x74, 0x45, 0x6e, 0x74, 0x72,
+	0x69, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x2e, 0x0a, 0x07, 0x65,
+	0x6e, 0x74, 0x72, 0x69, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x68,
+	0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x4b, 0x65, 0x79, 0x56, 0x65, 0x72, 0x73, 0x69,
+	0x6f, 0x6e, 0x52, 0x07, 0x65, 0x6e, 0x74, 0x72, 0x69, 0x65, 0x73, 0x32, 0xc4, 0x02, 0x0a, 0x0b,
+	0x4e, 0x6f, 0x64, 0x65, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x32, 0x0a, 0x03, 0x47,
+	0x65, 0x74, 0x12, 0x14, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65,
+	0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x15, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78,
+	0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
+	0x32, 0x0a, 0x03, 0x50, 0x75, 0x74, 0x12, 0x14, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76,
+	0x31, 0x2e, 0x50, 0x75, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x15, 0x2e, 0x68,
+	0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x75, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f,
+	0x6e, 0x73, 0x65, 0x12, 0x3e, 0x0a, 0x07, 0x50, 0x75, 0x74, 0x48, 0x69, 0x6e, 0x74, 0x12, 0x18,
+	0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x75, 0x74, 0x48, 0x69, 0x6e,
+	0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x19, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78,
+	0x2e, 0x76, 0x31, 0x2e, 0x50, 0x75, 0x74, 0x48, 0x69, 0x6e, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f,
+	0x6e, 0x73, 0x65, 0x12, 0x3b, 0x0a, 0x06, 0x4d, 0x65, 0x72, 0x6b, 0x6c, 0x65, 0x12, 0x17, 0x2e,
+	0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x4d, 0x65, 0x72, 0x6b, 0x6c, 0x65, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x18, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76,
+	0x31, 0x2e, 0x4d, 0x65, 0x72, 0x6b, 0x6c, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x50, 0x0a, 0x0d, 0x42, 0x75, 0x63, 0x6b, 0x65, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x69, 0x65,
+	0x73, 0x12, 0x1e, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x75, 0x63,
+	0x6b, 0x65, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x69, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x74, 0x1a, 0x1f, 0x2e, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x75, 0x63,
+	0x6b, 0x65, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x69, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x42, 0x3b, 0x5a, 0x39, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d,
+	0x2f, 0x74, 0x61, 0x6c, 0x69, 0x66, 0x70, 0x61, 0x74, 0x68, 0x61, 0x6e, 0x2f, 0x68, 0x65, 0x6c,
+	0x69, 0x78, 0x2f, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2f, 0x72, 0x70, 0x63, 0x2f,
+	0x68, 0x65, 0x6c, 0x69, 0x78, 0x76, 0x31, 0x3b, 0x68, 0x65, 0x6c, 0x69, 0x78, 0x76, 0x31, 0x62,
+	0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -514,35 +866,49 @@ func file_proto_helix_v1_node_proto_rawDescGZIP() []byte {
 	return file_proto_helix_v1_node_proto_rawDescData
 }
 
-var file_proto_helix_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_proto_helix_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_proto_helix_v1_node_proto_goTypes = []any{
-	(*VectorClock)(nil),     // 0: helix.v1.VectorClock
-	(*VersionedValue)(nil),  // 1: helix.v1.VersionedValue
-	(*GetRequest)(nil),      // 2: helix.v1.GetRequest
-	(*GetResponse)(nil),     // 3: helix.v1.GetResponse
-	(*PutRequest)(nil),      // 4: helix.v1.PutRequest
-	(*PutResponse)(nil),     // 5: helix.v1.PutResponse
-	(*PutHintRequest)(nil),  // 6: helix.v1.PutHintRequest
-	(*PutHintResponse)(nil), // 7: helix.v1.PutHintResponse
-	nil,                     // 8: helix.v1.VectorClock.EntriesEntry
+	(*VectorClock)(nil),           // 0: helix.v1.VectorClock
+	(*VersionedValue)(nil),        // 1: helix.v1.VersionedValue
+	(*GetRequest)(nil),            // 2: helix.v1.GetRequest
+	(*GetResponse)(nil),           // 3: helix.v1.GetResponse
+	(*PutRequest)(nil),            // 4: helix.v1.PutRequest
+	(*PutResponse)(nil),           // 5: helix.v1.PutResponse
+	(*PutHintRequest)(nil),        // 6: helix.v1.PutHintRequest
+	(*PutHintResponse)(nil),       // 7: helix.v1.PutHintResponse
+	(*RepairScope)(nil),           // 8: helix.v1.RepairScope
+	(*KeyVersion)(nil),            // 9: helix.v1.KeyVersion
+	(*MerkleRequest)(nil),         // 10: helix.v1.MerkleRequest
+	(*MerkleResponse)(nil),        // 11: helix.v1.MerkleResponse
+	(*BucketEntriesRequest)(nil),  // 12: helix.v1.BucketEntriesRequest
+	(*BucketEntriesResponse)(nil), // 13: helix.v1.BucketEntriesResponse
+	nil,                           // 14: helix.v1.VectorClock.EntriesEntry
 }
 var file_proto_helix_v1_node_proto_depIdxs = []int32{
-	8, // 0: helix.v1.VectorClock.entries:type_name -> helix.v1.VectorClock.EntriesEntry
-	0, // 1: helix.v1.VersionedValue.clock:type_name -> helix.v1.VectorClock
-	1, // 2: helix.v1.GetResponse.value:type_name -> helix.v1.VersionedValue
-	1, // 3: helix.v1.PutRequest.value:type_name -> helix.v1.VersionedValue
-	1, // 4: helix.v1.PutHintRequest.value:type_name -> helix.v1.VersionedValue
-	2, // 5: helix.v1.NodeService.Get:input_type -> helix.v1.GetRequest
-	4, // 6: helix.v1.NodeService.Put:input_type -> helix.v1.PutRequest
-	6, // 7: helix.v1.NodeService.PutHint:input_type -> helix.v1.PutHintRequest
-	3, // 8: helix.v1.NodeService.Get:output_type -> helix.v1.GetResponse
-	5, // 9: helix.v1.NodeService.Put:output_type -> helix.v1.PutResponse
-	7, // 10: helix.v1.NodeService.PutHint:output_type -> helix.v1.PutHintResponse
-	8, // [8:11] is the sub-list for method output_type
-	5, // [5:8] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	14, // 0: helix.v1.VectorClock.entries:type_name -> helix.v1.VectorClock.EntriesEntry
+	0,  // 1: helix.v1.VersionedValue.clock:type_name -> helix.v1.VectorClock
+	1,  // 2: helix.v1.GetResponse.value:type_name -> helix.v1.VersionedValue
+	1,  // 3: helix.v1.PutRequest.value:type_name -> helix.v1.VersionedValue
+	1,  // 4: helix.v1.PutHintRequest.value:type_name -> helix.v1.VersionedValue
+	1,  // 5: helix.v1.KeyVersion.value:type_name -> helix.v1.VersionedValue
+	8,  // 6: helix.v1.MerkleRequest.scope:type_name -> helix.v1.RepairScope
+	8,  // 7: helix.v1.BucketEntriesRequest.scope:type_name -> helix.v1.RepairScope
+	9,  // 8: helix.v1.BucketEntriesResponse.entries:type_name -> helix.v1.KeyVersion
+	2,  // 9: helix.v1.NodeService.Get:input_type -> helix.v1.GetRequest
+	4,  // 10: helix.v1.NodeService.Put:input_type -> helix.v1.PutRequest
+	6,  // 11: helix.v1.NodeService.PutHint:input_type -> helix.v1.PutHintRequest
+	10, // 12: helix.v1.NodeService.Merkle:input_type -> helix.v1.MerkleRequest
+	12, // 13: helix.v1.NodeService.BucketEntries:input_type -> helix.v1.BucketEntriesRequest
+	3,  // 14: helix.v1.NodeService.Get:output_type -> helix.v1.GetResponse
+	5,  // 15: helix.v1.NodeService.Put:output_type -> helix.v1.PutResponse
+	7,  // 16: helix.v1.NodeService.PutHint:output_type -> helix.v1.PutHintResponse
+	11, // 17: helix.v1.NodeService.Merkle:output_type -> helix.v1.MerkleResponse
+	13, // 18: helix.v1.NodeService.BucketEntries:output_type -> helix.v1.BucketEntriesResponse
+	14, // [14:19] is the sub-list for method output_type
+	9,  // [9:14] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_proto_helix_v1_node_proto_init() }
@@ -647,6 +1013,78 @@ func file_proto_helix_v1_node_proto_init() {
 				return nil
 			}
 		}
+		file_proto_helix_v1_node_proto_msgTypes[8].Exporter = func(v any, i int) any {
+			switch v := v.(*RepairScope); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_proto_helix_v1_node_proto_msgTypes[9].Exporter = func(v any, i int) any {
+			switch v := v.(*KeyVersion); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_proto_helix_v1_node_proto_msgTypes[10].Exporter = func(v any, i int) any {
+			switch v := v.(*MerkleRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_proto_helix_v1_node_proto_msgTypes[11].Exporter = func(v any, i int) any {
+			switch v := v.(*MerkleResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_proto_helix_v1_node_proto_msgTypes[12].Exporter = func(v any, i int) any {
+			switch v := v.(*BucketEntriesRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_proto_helix_v1_node_proto_msgTypes[13].Exporter = func(v any, i int) any {
+			switch v := v.(*BucketEntriesResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -654,7 +1092,7 @@ func file_proto_helix_v1_node_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_proto_helix_v1_node_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
