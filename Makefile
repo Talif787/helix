@@ -1,6 +1,8 @@
-.PHONY: build demos run test race vet fmt tidy clean check
+.PHONY: build demos run test race vet fmt tidy clean check proto proto-tools
 
 BINARY := bin/kvnode
+
+PROTO_FILES := $(shell find proto -name '*.proto' 2>/dev/null)
 
 build:
 	go build -o $(BINARY) ./cmd/kvnode
@@ -29,6 +31,19 @@ fmt:
 
 tidy:
 	go mod tidy
+
+# proto-tools installs the protoc plugins into $(go env GOPATH)/bin, which must be on PATH.
+proto-tools:
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.2
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+
+# proto regenerates Go from the .proto contracts. Requires protoc plus the plugins from
+# proto-tools. The module option routes output to the path in each file's go_package.
+proto:
+	protoc \
+	  --go_out=. --go_opt=module=github.com/talifpathan/helix \
+	  --go-grpc_out=. --go-grpc_opt=module=github.com/talifpathan/helix \
+	  $(PROTO_FILES)
 
 clean:
 	rm -rf bin data

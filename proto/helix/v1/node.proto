@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package helix.v1;
+
+// Generated Go lands in internal/rpc/helixv1 as package helixv1. The hand-written gRPC
+// server, client, and transport (added in the next part) live in internal/rpc and import
+// this generated package.
+option go_package = "github.com/talifpathan/helix/internal/rpc/helixv1;helixv1";
+
+// VectorClock maps a node id to its per-node counter. It is the causal metadata the cluster
+// uses to reconcile divergent copies of a value.
+message VectorClock {
+  map<string, uint64> entries = 1;
+}
+
+// VersionedValue is a stored value together with its causal metadata. A delete is carried
+// as a value with deleted=true (a logical tombstone), so deletes replicate and reconcile
+// like any other write.
+message VersionedValue {
+  bytes value = 1;
+  VectorClock clock = 2;
+  int64 timestamp = 3;
+  bool deleted = 4;
+}
+
+message GetRequest {
+  bytes key = 1;
+}
+
+message GetResponse {
+  VersionedValue value = 1;
+  bool found = 2;
+}
+
+message PutRequest {
+  bytes key = 1;
+  VersionedValue value = 2;
+}
+
+message PutResponse {}
+
+message PutHintRequest {
+  string intended = 1; // node id the write is ultimately destined for
+  bytes key = 2;
+  VersionedValue value = 3;
+}
+
+message PutHintResponse {}
+
+// NodeService is the node-to-node data plane. A coordinator on one node calls these on the
+// replicas in a key's preference list. Application errors are returned as gRPC status codes,
+// so the response messages carry only data. Control-plane RPCs for anti-entropy (Merkle
+// tree exchange) and SWIM membership are added in later parts.
+service NodeService {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc PutHint(PutHintRequest) returns (PutHintResponse);
+}
