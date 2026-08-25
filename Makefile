@@ -9,6 +9,7 @@ demos:
 	go build -o bin/sstdemo ./cmd/sstdemo
 	go build -o bin/clusterdemo ./cmd/clusterdemo
 	go build -o bin/swimdemo ./cmd/swimdemo
+	go build -o bin/hintdemo ./cmd/hintdemo
 
 run: build
 	./$(BINARY)
