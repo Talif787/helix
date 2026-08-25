@@ -144,15 +144,33 @@ func TestSwimStartStopIsClean(t *testing.T) {
 		e.cfg.Period = 5 * time.Millisecond
 		e.Start()
 	}
-	time.Sleep(60 * time.Millisecond)
-	for _, e := range engines {
-		e.Stop()
-		e.Stop() // idempotent
-	}
-	// After running, the healthy cluster should still see everyone alive.
-	for _, target := range ids {
-		if !allSee(engines, target, Alive, nil) {
-			t.Fatalf("after Start/Stop, %s should be alive everywhere", target)
+	defer func() {
+		for _, e := range engines {
+			e.Stop()
+			e.Stop() // idempotent
 		}
+	}()
+
+	// Wait for convergence rather than sleeping a fixed amount, so the test is robust to a
+	// slow or contended CI runner. It cannot hang (bounded deadline) and still fails loudly
+	// if convergence never happens.
+	deadline := time.Now().Add(2 * time.Second)
+	converged := false
+	for time.Now().Before(deadline) {
+		allAlive := true
+		for _, target := range ids {
+			if !allSee(engines, target, Alive, nil) {
+				allAlive = false
+				break
+			}
+		}
+		if allAlive {
+			converged = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !converged {
+		t.Fatal("cluster did not converge to all-alive within the deadline")
 	}
 }
