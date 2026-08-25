@@ -3,6 +3,7 @@ package cluster
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"sort"
 )
 
@@ -68,6 +69,30 @@ func (t *MerkleTree) Root() [32]byte {
 		return [32]byte{}
 	}
 	return t.nodes[1]
+}
+
+// Serialize flattens the tree's node hashes into a byte slice for transport. The layout is
+// fixed (2*merkleLeaves hashes of 32 bytes), so DeserializeMerkleTree can rebuild it.
+func (t *MerkleTree) Serialize() []byte {
+	out := make([]byte, 0, len(t.nodes)*32)
+	for i := range t.nodes {
+		out = append(out, t.nodes[i][:]...)
+	}
+	return out
+}
+
+// DeserializeMerkleTree rebuilds a tree from the bytes produced by Serialize, validating the
+// length so a comparison never runs against a malformed tree.
+func DeserializeMerkleTree(b []byte) (*MerkleTree, error) {
+	want := 2 * merkleLeaves * 32
+	if len(b) != want {
+		return nil, fmt.Errorf("merkle: serialized length %d, want %d", len(b), want)
+	}
+	nodes := make([][32]byte, 2*merkleLeaves)
+	for i := range nodes {
+		copy(nodes[i][:], b[i*32:(i+1)*32])
+	}
+	return &MerkleTree{nodes: nodes}, nil
 }
 
 // Diff returns the leaf bucket indices where this tree and other differ, walking down from
