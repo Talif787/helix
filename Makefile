@@ -6,6 +6,7 @@ PROTO_FILES := $(shell find proto -name '*.proto' 2>/dev/null)
 
 build:
 	go build -o $(BINARY) ./cmd/kvnode
+	go build -o bin/helixcert ./cmd/helixcert
 
 demos:
 	go build -o bin/sstdemo ./cmd/sstdemo
