@@ -29,7 +29,7 @@ vet:
 	go vet ./...
 
 fmt:
-	gofmt -s -w .
+	gofmt -s -w $(shell find . -name '*.go' -not -path './vendor/*')
 
 tidy:
 	go mod tidy
