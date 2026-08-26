@@ -197,6 +197,7 @@ func New(cfg Config) (*Daemon, error) {
 	})
 	coord := cluster.NewCoordinator(ring, transport, cfg.N, cfg.R, cfg.W, cfg.MaxHints, nil, log)
 	server := rpc.NewServer(node, swim, serverOpts...)
+	rpc.RegisterClientService(server, coord) // the application-facing plane, coordinated
 
 	reg := metrics.NewRegistry()
 	d := &Daemon{
