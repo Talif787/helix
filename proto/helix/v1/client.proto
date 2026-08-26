@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package helix.v1;
+
+option go_package = "github.com/talifpathan/helix/internal/rpc/helixv1;helixv1";
+
+// ClientService is the front door for applications. Unlike NodeService, which is node-to-node
+// and operates at the replica level, these calls run the full coordinator: a Put or Delete
+// commits to a write quorum and a Get reads from a read quorum, with reconciliation. A client
+// may call any node; that node coordinates on the client's behalf.
+service ClientService {
+  rpc Get(ClientGetRequest) returns (ClientGetResponse);
+  rpc Put(ClientPutRequest) returns (ClientPutResponse);
+  rpc Delete(ClientDeleteRequest) returns (ClientDeleteResponse);
+}
+
+message ClientGetRequest {
+  bytes key = 1;
+}
+
+message ClientGetResponse {
+  bytes value = 1;
+  bool found = 2; // false means the key is absent (not an error)
+}
+
+message ClientPutRequest {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message ClientPutResponse {}
+
+message ClientDeleteRequest {
+  bytes key = 1;
+}
+
+message ClientDeleteResponse {}
