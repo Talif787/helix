@@ -213,7 +213,27 @@ func New(cfg Config) (*Daemon, error) {
 		gImmut:    reg.NewGauge("helix_storage_immutable_memtables", "sealed memtables awaiting flush"),
 	}
 	d.gUp.With().Set(1)
+
+	// Coordinator hot-path metrics, wired through the cluster.Metrics interface so the cluster
+	// package stays decoupled from this registry.
+	requests := reg.NewCounter("helix_requests_total", "coordinator requests by operation and result", "op", "result")
+	latency := reg.NewHistogram("helix_request_duration_seconds", "coordinator request latency in seconds", metrics.DefaultLatencyBuckets, "op")
+	coord.SetMetrics(&coordMetrics{requests: requests, latency: latency})
+
 	return d, nil
+}
+
+// coordMetrics adapts the metrics registry to the cluster.Metrics interface.
+type coordMetrics struct {
+	requests *metrics.CounterVec
+	latency  *metrics.HistogramVec
+}
+
+var _ cluster.Metrics = (*coordMetrics)(nil)
+
+func (m *coordMetrics) ObserveRequest(op, result string, seconds float64) {
+	m.requests.With(op, result).Inc()
+	m.latency.With(op).Observe(seconds)
 }
 
 // Start binds the listener (or uses cfg.Listener), serves both planes, and launches the
