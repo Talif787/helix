@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -26,6 +27,7 @@ type Coordinator struct {
 	maxHints int // extra fallback nodes past the preference list that may hold hints
 	now      func() int64
 	log      *slog.Logger
+	metrics  Metrics
 }
 
 // NewCoordinator binds a ring and transport with replication factor n, quorums r and w, and
@@ -41,17 +43,45 @@ func NewCoordinator(ring *Ring, tr Transport, n, r, w, maxHints int, now func() 
 	if maxHints < 0 {
 		maxHints = 0
 	}
-	return &Coordinator{ring: ring, tr: tr, n: n, r: r, w: w, maxHints: maxHints, now: now, log: log}
+	return &Coordinator{ring: ring, tr: tr, n: n, r: r, w: w, maxHints: maxHints, now: now, log: log, metrics: nopMetrics{}}
+}
+
+// SetMetrics installs a metrics sink for per-request observations. Passing nil restores the
+// no-op default. It is meant to be called once at wiring time, before serving.
+func (c *Coordinator) SetMetrics(m Metrics) {
+	if m == nil {
+		m = nopMetrics{}
+	}
+	c.metrics = m
+}
+
+// resultOf classifies a request outcome for the result label. For reads, a missing key is a
+// distinct "not_found" rather than an error.
+func resultOf(err error, notFoundIsResult bool) string {
+	switch {
+	case err == nil:
+		return "ok"
+	case notFoundIsResult && errors.Is(err, storage.ErrNotFound):
+		return "not_found"
+	default:
+		return "error"
+	}
 }
 
 // Put replicates a write of value under key.
 func (c *Coordinator) Put(ctx context.Context, key, value []byte) error {
-	return c.write(ctx, key, value, false)
+	start := time.Now()
+	err := c.write(ctx, key, value, false)
+	c.metrics.ObserveRequest("put", resultOf(err, false), time.Since(start).Seconds())
+	return err
 }
 
 // Delete replicates a tombstone for key.
 func (c *Coordinator) Delete(ctx context.Context, key []byte) error {
-	return c.write(ctx, key, nil, true)
+	start := time.Now()
+	err := c.write(ctx, key, nil, true)
+	c.metrics.ObserveRequest("delete", resultOf(err, false), time.Since(start).Seconds())
+	return err
 }
 
 func (c *Coordinator) write(ctx context.Context, key, value []byte, deleted bool) error {
@@ -181,6 +211,13 @@ type readResult struct {
 // list only; a value held solely as a hint on a fallback becomes readable once the intended
 // replica recovers and the hint is delivered.
 func (c *Coordinator) Get(ctx context.Context, key []byte) ([]byte, error) {
+	start := time.Now()
+	v, err := c.get(ctx, key)
+	c.metrics.ObserveRequest("get", resultOf(err, true), time.Since(start).Seconds())
+	return v, err
+}
+
+func (c *Coordinator) get(ctx context.Context, key []byte) ([]byte, error) {
 	pref := c.ring.LookupN(key, c.n)
 	if len(pref) == 0 {
 		return nil, ErrNoNodes
