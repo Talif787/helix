@@ -14,6 +14,7 @@
 //	HELIX_VNODES               virtual nodes per node on the ring (default 128)
 //	HELIX_MAX_HINTS            max hinted-handoff entries per node (default N)
 //	HELIX_TLS_CERT/KEY/CA      PEM paths for mutual TLS (all three, or none for plaintext)
+//	HELIX_METRICS_ADDR         if set, serve /metrics and /healthz over HTTP here
 //	HELIX_SWIM_INTERVAL        membership round period (default 1s)
 //	HELIX_ANTIENTROPY_INTERVAL anti-entropy round period (default 30s)
 //	HELIX_HINT_INTERVAL        hint-delivery period (default 10s)
@@ -136,6 +137,7 @@ func daemonConfigFromEnv(base config.Config, logger *slog.Logger) (daemon.Config
 		TLSCert:             os.Getenv("HELIX_TLS_CERT"),
 		TLSKey:              os.Getenv("HELIX_TLS_KEY"),
 		TLSCA:               os.Getenv("HELIX_TLS_CA"),
+		MetricsAddr:         os.Getenv("HELIX_METRICS_ADDR"),
 		Storage:             base.ToStorageOptions(logger),
 		SwimInterval:        swimIv,
 		AntiEntropyInterval: aeIv,
