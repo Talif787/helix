@@ -51,7 +51,8 @@ clean:
 	rm -rf bin data
 
 # docker-build builds the runtime image; docker-up brings up the three-node cluster defined in
-# docker-compose.yml; docker-down stops it and removes the data volumes.
+# docker-compose.yml; docker-down stops it and removes the data volumes. The image builds from
+# the committed vendor/ tree, so it needs no network at build time.
 docker-build:
 	docker build -t helix:local .
 

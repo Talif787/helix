@@ -6,7 +6,8 @@
 FROM golang:1.22 AS builder
 WORKDIR /src
 
-# Build entirely from the committed vendor/ tree, so the image build needs no network.
+# Build entirely from the committed vendor/ tree, so the image build needs no network. This
+# matters in environments where BuildKit's build sandbox cannot reach the Go module proxy.
 COPY . .
 ENV GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=vendor
 RUN go build -trimpath -o /out/kvnode ./cmd/kvnode \
