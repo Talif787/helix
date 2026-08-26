@@ -333,16 +333,17 @@ listener alongside NodeService and MembershipService.
 ### Scenario E: talk to a running node with an embedded Go driver
 
 Because there is no CLI yet, this scenario uses a throwaway Go program to Put and Get against
-the node started in 4a. It lives in a temp module dir so it does not touch the repo, and it
-imports the client library from your checkout via a replace directive.
+the node started in 4a. It lives at cmd/helixdriver inside the Helix module, because Go forbids
+a separate module from importing internal/ packages; delete it when done so it is not committed.
 
-Start the node from 4a first, then:
+Start the node from 4a first, then create the driver inside the Helix module (so it is
+allowed to import the internal client library; a separate module is blocked by Go's
+internal-package rule):
 
 ```bash
 cd "$HELIX_HOME"
-DRIVER=/tmp/helix-driver
-rm -rf "$DRIVER" && mkdir -p "$DRIVER"
-cat > "$DRIVER/main.go" <<'HELIX_EOF'
+mkdir -p cmd/helixdriver
+cat > cmd/helixdriver/main.go <<'HELIX_EOF'
 package main
 
 import (
@@ -388,20 +389,7 @@ func main() {
 }
 HELIX_EOF
 
-# Point the throwaway module at your checkout so it uses the same client library.
-cat > "$DRIVER/go.mod" <<EOF
-module helixdriver
-
-go 1.22
-
-require github.com/talifpathan/helix v0.0.0
-
-replace github.com/talifpathan/helix => $HELIX_HOME
-EOF
-
-cd "$DRIVER"
-GOTOOLCHAIN=local go mod tidy
-GOTOOLCHAIN=local go run .
+GOTOOLCHAIN=local go run ./cmd/helixdriver
 ```
 
 Expected output: `PUT ... OK`, then `GET ... found=true value="balance-100"`, then
@@ -410,9 +398,10 @@ Expected output: `PUT ... OK`, then `GET ... found=true value="balance-100"`, th
 Clean up:
 
 ```bash
-rm -rf /tmp/helix-driver
+cd "$HELIX_HOME"
+rm -rf cmd/helixdriver
 pkill -f './bin/kvnode' 2>/dev/null || true
-echo "cleaned up driver and node"
+echo "removed temp driver and stopped node"
 ```
 
 ---
@@ -481,8 +470,9 @@ Client behavior
 - Scenario E driver: a Put returns an error on a single node: set HELIX_N=1 HELIX_R=1 HELIX_W=1
   when launching the node (section 4a). The default 3/2/2 cannot reach a write quorum of two on
   one node.
-- Scenario E driver: `go run` fails to resolve the module: the replace directive path is wrong.
-  Confirm `$HELIX_HOME` expanded to your actual checkout in the generated go.mod.
+- Scenario E driver: `use of internal package ... not allowed`: the driver is outside the Helix
+  module. It must live under $HELIX_HOME (cmd/helixdriver), not in a separate module, because
+  Go forbids importing internal/ across modules.
 
 Protocol and transport
 - The client cannot reach the node with a curl: expected. ClientService is gRPC, not HTTP; curl
