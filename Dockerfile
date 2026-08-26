@@ -6,12 +6,9 @@
 FROM golang:1.22 AS builder
 WORKDIR /src
 
-# Cache dependencies first: only re-download when go.mod/go.sum change.
-COPY go.mod go.sum ./
-RUN go mod download
-
+# Build entirely from the committed vendor/ tree, so the image build needs no network.
 COPY . .
-ENV GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux
+ENV GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=vendor
 RUN go build -trimpath -o /out/kvnode ./cmd/kvnode \
  && go build -trimpath -o /out/helixctl ./cmd/helixctl
 
