@@ -9,8 +9,10 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/talifpathan/helix/internal/cluster"
 	"github.com/talifpathan/helix/internal/membership"
+	"github.com/talifpathan/helix/internal/metrics"
 	"github.com/talifpathan/helix/internal/rpc"
 	"github.com/talifpathan/helix/internal/storage"
 	"github.com/talifpathan/helix/internal/tlsutil"
@@ -39,6 +42,8 @@ type Config struct {
 	TLSCert string
 	TLSKey  string
 	TLSCA   string
+
+	MetricsAddr string // if set, serve /metrics and /healthz over HTTP here
 
 	Storage storage.Options
 
@@ -125,6 +130,19 @@ type Daemon struct {
 	loopCtx    context.Context
 	loopCancel context.CancelFunc
 	wg         sync.WaitGroup
+
+	eng       *storage.Engine
+	startedAt time.Time
+	reg       *metrics.Registry
+	gUp       *metrics.GaugeVec
+	gUptime   *metrics.GaugeVec
+	gMembers  *metrics.GaugeVec
+	gMemKeys  *metrics.GaugeVec
+	gMemBytes *metrics.GaugeVec
+	gSSTables *metrics.GaugeVec
+	gImmut    *metrics.GaugeVec
+	admin     *http.Server
+	adminLis  net.Listener
 }
 
 // New builds a node from cfg. It opens the storage engine and wires the coordinator, SWIM
@@ -180,11 +198,22 @@ func New(cfg Config) (*Daemon, error) {
 	coord := cluster.NewCoordinator(ring, transport, cfg.N, cfg.R, cfg.W, cfg.MaxHints, nil, log)
 	server := rpc.NewServer(node, swim, serverOpts...)
 
-	return &Daemon{
+	reg := metrics.NewRegistry()
+	d := &Daemon{
 		cfg: cfg, log: log, ids: ids, node: node,
 		peers: peers, transport: transport, messenger: messenger,
 		swim: swim, coord: coord, server: server,
-	}, nil
+		eng: eng, startedAt: time.Now(), reg: reg,
+		gUp:       reg.NewGauge("helix_up", "1 if the node process is running"),
+		gUptime:   reg.NewGauge("helix_uptime_seconds", "seconds since the node started"),
+		gMembers:  reg.NewGauge("helix_cluster_members", "cluster members observed by this node, by state", "state"),
+		gMemKeys:  reg.NewGauge("helix_storage_memtable_keys", "keys in the active memtable"),
+		gMemBytes: reg.NewGauge("helix_storage_memtable_bytes", "approximate active memtable size in bytes"),
+		gSSTables: reg.NewGauge("helix_storage_sstables", "number of on-disk sstables"),
+		gImmut:    reg.NewGauge("helix_storage_immutable_memtables", "sealed memtables awaiting flush"),
+	}
+	d.gUp.With().Set(1)
+	return d, nil
 }
 
 // Start binds the listener (or uses cfg.Listener), serves both planes, and launches the
@@ -214,12 +243,79 @@ func (d *Daemon) Start() error {
 	d.log.Info("daemon serving",
 		"addr", lis.Addr().String(), "tls", d.cfg.tlsEnabled(),
 		"peers", len(d.cfg.Peers), "n", d.cfg.N, "r", d.cfg.R, "w", d.cfg.W)
+
+	if err := d.startAdmin(); err != nil {
+		return fmt.Errorf("daemon: start metrics server: %w", err)
+	}
 	return nil
+}
+
+// startAdmin serves /metrics and /healthz over HTTP when MetricsAddr is set. Metrics are
+// refreshed on each scrape so they reflect current state without a background loop.
+func (d *Daemon) startAdmin() error {
+	if d.cfg.MetricsAddr == "" {
+		return nil
+	}
+	lis, err := net.Listen("tcp", d.cfg.MetricsAddr)
+	if err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		d.refreshMetrics()
+		d.reg.Handler().ServeHTTP(w, r)
+	})
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "ok\n")
+	})
+	d.adminLis = lis
+	d.admin = &http.Server{Handler: mux}
+	go func() { _ = d.admin.Serve(lis) }()
+	d.log.Info("metrics serving", "addr", lis.Addr().String())
+	return nil
+}
+
+// refreshMetrics samples current membership and storage state into the gauges.
+func (d *Daemon) refreshMetrics() {
+	d.gUptime.With().Set(int64(time.Since(d.startedAt).Seconds()))
+
+	st := d.eng.Stats()
+	d.gMemKeys.With().Set(int64(st.Keys))
+	d.gMemBytes.With().Set(st.ApproxBytes)
+	d.gSSTables.With().Set(int64(st.SSTables))
+	d.gImmut.With().Set(int64(st.Immutable))
+
+	var alive, suspect, dead int
+	for _, m := range d.swim.List().Members() {
+		switch m.State {
+		case membership.Alive:
+			alive++
+		case membership.Suspect:
+			suspect++
+		case membership.Dead:
+			dead++
+		}
+	}
+	d.gMembers.With("alive").Set(int64(alive))
+	d.gMembers.With("suspect").Set(int64(suspect))
+	d.gMembers.With("dead").Set(int64(dead))
+}
+
+// MetricsAddr returns the address the admin HTTP server is bound to, or "" if disabled.
+func (d *Daemon) MetricsAddr() string {
+	if d.adminLis != nil {
+		return d.adminLis.Addr().String()
+	}
+	return ""
 }
 
 // Stop cancels the loops, waits for them, then gracefully stops the server and closes the
 // transport, messenger, and storage engine.
 func (d *Daemon) Stop() error {
+	if d.admin != nil {
+		_ = d.admin.Close()
+	}
 	if d.loopCancel != nil {
 		d.loopCancel()
 	}
