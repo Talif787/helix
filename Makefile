@@ -1,4 +1,4 @@
-.PHONY: build demos run test race vet fmt tidy clean check proto proto-tools
+.PHONY: build demos run test race vet fmt tidy clean check proto proto-tools docker-build docker-up docker-down docker-logs
 
 BINARY := bin/kvnode
 
@@ -49,6 +49,20 @@ proto:
 
 clean:
 	rm -rf bin data
+
+# docker-build builds the runtime image; docker-up brings up the three-node cluster defined in
+# docker-compose.yml; docker-down stops it and removes the data volumes.
+docker-build:
+	docker build -t helix:local .
+
+docker-up:
+	docker compose up --build -d
+
+docker-down:
+	docker compose down -v
+
+docker-logs:
+	docker compose logs -f
 
 check: fmt vet race
 	@echo "check passed"
