@@ -54,7 +54,8 @@ func (r *Registry) NewGauge(name, help string, labelNames ...string) *GaugeVec {
 	return gv
 }
 
-// WriteTo renders the full exposition to w.
+// WriteExposition renders the full exposition to w. It is deliberately not named WriteTo, to
+// avoid implying the io.WriterTo contract (which returns a count and error).
 func (r *Registry) WriteExposition(w io.Writer) {
 	r.mu.Lock()
 	fams := make([]collector, len(r.families))
@@ -179,6 +180,103 @@ func (gv *GaugeVec) writeTo(w io.Writer) {
 		writeSample(w, gv.name, gv.labelNames, g.labels, strconv.FormatInt(g.value(), 10))
 	}
 }
+
+// DefaultLatencyBuckets is a reasonable set of upper bounds (seconds) for request latency.
+var DefaultLatencyBuckets = []float64{
+	0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
+}
+
+// NewHistogram registers and returns a histogram family. buckets are the upper bounds in
+// ascending order (a +Inf bucket is added implicitly).
+func (r *Registry) NewHistogram(name, help string, buckets []float64, labelNames ...string) *HistogramVec {
+	b := append([]float64(nil), buckets...)
+	sort.Float64s(b)
+	hv := &HistogramVec{name: name, help: help, labelNames: labelNames, buckets: b, series: make(map[string]*Histogram)}
+	r.register(name, hv)
+	return hv
+}
+
+// HistogramVec is a family of latency-style histograms sharing a name, buckets, and labels.
+type HistogramVec struct {
+	name, help string
+	labelNames []string
+	buckets    []float64
+	mu         sync.Mutex
+	series     map[string]*Histogram
+}
+
+// Histogram is a single histogram series. counts[i] holds the cumulative number of
+// observations less than or equal to buckets[i].
+type Histogram struct {
+	labels  []string
+	buckets []float64
+	mu      sync.Mutex
+	counts  []uint64
+	sum     float64
+	count   uint64
+}
+
+// With returns the histogram for the given label values, creating it on first use.
+func (hv *HistogramVec) With(values ...string) *Histogram {
+	if len(values) != len(hv.labelNames) {
+		panic(fmt.Sprintf("metrics: %s expects %d label values, got %d", hv.name, len(hv.labelNames), len(values)))
+	}
+	key := strings.Join(values, "\x00")
+	hv.mu.Lock()
+	defer hv.mu.Unlock()
+	h := hv.series[key]
+	if h == nil {
+		h = &Histogram{labels: append([]string(nil), values...), buckets: hv.buckets, counts: make([]uint64, len(hv.buckets))}
+		hv.series[key] = h
+	}
+	return h
+}
+
+// Observe records one value. It is safe for concurrent use.
+func (h *Histogram) Observe(v float64) {
+	h.mu.Lock()
+	for i, b := range h.buckets {
+		if v <= b {
+			h.counts[i]++
+		}
+	}
+	h.sum += v
+	h.count++
+	h.mu.Unlock()
+}
+
+func (hv *HistogramVec) writeTo(w io.Writer) {
+	fmt.Fprintf(w, "# HELP %s %s\n", hv.name, escapeHelp(hv.help))
+	fmt.Fprintf(w, "# TYPE %s histogram\n", hv.name)
+	hv.mu.Lock()
+	keys := make([]string, 0, len(hv.series))
+	for k := range hv.series {
+		keys = append(keys, k)
+	}
+	series := hv.series
+	hv.mu.Unlock()
+	sort.Strings(keys)
+
+	leNames := append(append([]string(nil), hv.labelNames...), "le")
+	for _, k := range keys {
+		h := series[k]
+		h.mu.Lock()
+		counts := append([]uint64(nil), h.counts...)
+		sum, total := h.sum, h.count
+		h.mu.Unlock()
+
+		for i, b := range hv.buckets {
+			vals := append(append([]string(nil), h.labels...), formatFloat(b))
+			writeSample(w, hv.name+"_bucket", leNames, vals, strconv.FormatUint(counts[i], 10))
+		}
+		infVals := append(append([]string(nil), h.labels...), "+Inf")
+		writeSample(w, hv.name+"_bucket", leNames, infVals, strconv.FormatUint(total, 10))
+		writeSample(w, hv.name+"_sum", hv.labelNames, h.labels, formatFloat(sum))
+		writeSample(w, hv.name+"_count", hv.labelNames, h.labels, strconv.FormatUint(total, 10))
+	}
+}
+
+func formatFloat(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
 
 func writeSample(w io.Writer, name string, labelNames, labelValues []string, valueStr string) {
 	if len(labelNames) == 0 {

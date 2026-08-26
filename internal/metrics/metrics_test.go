@@ -97,6 +97,34 @@ func TestConcurrentInc(t *testing.T) {
 	}
 }
 
+func TestHistogramExposition(t *testing.T) {
+	r := NewRegistry()
+	h := r.NewHistogram("helix_request_duration_seconds", "latency", []float64{0.01, 0.1, 1}, "op")
+	h.With("get").Observe(0.005) // <= 0.01, so falls in all buckets
+	h.With("get").Observe(0.05)  // <= 0.1 and 1
+	h.With("get").Observe(5)     // only +Inf
+
+	out := render(r)
+	if !strings.Contains(out, "# TYPE helix_request_duration_seconds histogram") {
+		t.Fatalf("missing histogram TYPE:\n%s", out)
+	}
+	// cumulative buckets: le=0.01 has 1, le=0.1 has 2, le=1 has 2, +Inf has 3.
+	for _, want := range []string{
+		`helix_request_duration_seconds_bucket{op="get",le="0.01"} 1`,
+		`helix_request_duration_seconds_bucket{op="get",le="0.1"} 2`,
+		`helix_request_duration_seconds_bucket{op="get",le="1"} 2`,
+		`helix_request_duration_seconds_bucket{op="get",le="+Inf"} 3`,
+		`helix_request_duration_seconds_count{op="get"} 3`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, `helix_request_duration_seconds_sum{op="get"} 5.055`) {
+		t.Fatalf("sum wrong (want 5.055):\n%s", out)
+	}
+}
+
 func TestDuplicateRegistrationPanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {
