@@ -1,0 +1,10 @@
+# Keep the build context small and reproducible.
+.git
+.gitignore
+bin/
+data/
+certs/
+*.log
+docs/
+*.md
+.github/

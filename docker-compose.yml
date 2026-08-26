@@ -1,0 +1,68 @@
+# A local three-node Helix cluster. Nodes find each other by service name over the Compose
+# network, so HELIX_PEERS uses the service DNS names. Defaults (N=3, R=2, W=2) suit three nodes.
+#
+#   docker compose up --build -d      # start the cluster
+#   ./bin/helixctl -addr 127.0.0.1:7070 put k v
+#   ./bin/helixctl -addr 127.0.0.1:7072 get k     # read back through a different node
+#   curl -s localhost:9090/metrics                 # scrape node a
+#   docker compose down -v                         # stop and remove volumes
+name: helix
+
+x-node-env: &node-env
+  HELIX_PEERS: "helix-a=helix-a:7070,helix-b=helix-b:7070,helix-c=helix-c:7070"
+  HELIX_BIND_ADDR: "0.0.0.0:7070"
+  HELIX_METRICS_ADDR: "0.0.0.0:9090"
+  HELIX_DATA_DIR: "/data"
+  HELIX_LOG_FORMAT: "json"
+
+x-healthcheck: &healthcheck
+  test: ["CMD", "wget", "-qO-", "http://localhost:9090/healthz"]
+  interval: 5s
+  timeout: 3s
+  retries: 5
+  start_period: 5s
+
+services:
+  helix-a:
+    build: .
+    image: helix:local
+    environment:
+      <<: *node-env
+      HELIX_NODE_ID: "helix-a"
+    ports:
+      - "7070:7070"
+      - "9090:9090"
+    volumes:
+      - helix-a-data:/data
+    healthcheck: *healthcheck
+
+  helix-b:
+    image: helix:local
+    depends_on: [helix-a]
+    environment:
+      <<: *node-env
+      HELIX_NODE_ID: "helix-b"
+    ports:
+      - "7071:7070"
+      - "9091:9090"
+    volumes:
+      - helix-b-data:/data
+    healthcheck: *healthcheck
+
+  helix-c:
+    image: helix:local
+    depends_on: [helix-a]
+    environment:
+      <<: *node-env
+      HELIX_NODE_ID: "helix-c"
+    ports:
+      - "7072:7070"
+      - "9092:9090"
+    volumes:
+      - helix-c-data:/data
+    healthcheck: *healthcheck
+
+volumes:
+  helix-a-data:
+  helix-b-data:
+  helix-c-data:
