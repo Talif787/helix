@@ -1,0 +1,18 @@
+Helix is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+StatefulSet:  {{ include "helix.fullname" . }}  ({{ .Values.replicaCount }} replicas)
+Client svc:   {{ include "helix.fullname" . }}:{{ .Values.ports.grpc }} (gRPC)
+Headless svc: {{ include "helix.headlessName" . }} (per-pod DNS)
+
+Wait for all pods to be ready:
+  kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "helix.fullname" . }}
+
+Write through one pod and read it back through another (proves they form one cluster):
+  kubectl -n {{ .Release.Namespace }} exec {{ include "helix.fullname" . }}-0 -- \
+    helixctl -addr 127.0.0.1:{{ .Values.ports.grpc }} put order:5005 shipped
+  kubectl -n {{ .Release.Namespace }} exec {{ include "helix.fullname" . }}-{{ sub (int .Values.replicaCount) 1 }} -- \
+    helixctl -addr 127.0.0.1:{{ .Values.ports.grpc }} get order:5005
+
+Scrape a node's metrics:
+  kubectl -n {{ .Release.Namespace }} exec {{ include "helix.fullname" . }}-0 -- \
+    wget -qO- http://127.0.0.1:{{ .Values.ports.metrics }}/metrics | grep helix_
