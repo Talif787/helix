@@ -1,0 +1,21 @@
+# A regular ClusterIP Service for clients. Any node can coordinate a request, so a client can
+# talk to this one address and be load-balanced across the pods. The metrics port is exposed too
+# for a cluster-wide scrape; per-pod scraping uses the headless Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: helix
+  namespace: helix
+  labels:
+    app: helix
+spec:
+  type: ClusterIP
+  selector:
+    app: helix
+  ports:
+    - name: grpc
+      port: 7070
+      targetPort: grpc
+    - name: metrics
+      port: 9090
+      targetPort: metrics

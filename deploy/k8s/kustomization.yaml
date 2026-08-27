@@ -1,0 +1,10 @@
+# Apply the whole cluster with: kubectl apply -k deploy/k8s/
+# Kustomize creates the namespace first, then the services and the StatefulSet.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: helix
+resources:
+  - namespace.yaml
+  - headless-service.yaml
+  - service.yaml
+  - statefulset.yaml

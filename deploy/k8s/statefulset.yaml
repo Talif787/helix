@@ -1,0 +1,87 @@
+# Three Helix nodes as a StatefulSet: stable pod names (helix-0, helix-1, helix-2), stable DNS
+# through the headless Service, and a persistent volume per pod so a restarted node recovers its
+# engine from its own data, exactly as the simulation phase's crash/restart path assumes.
+#
+# HELIX_NODE_ID is the pod name (from the downward API), so each node's id equals its DNS label
+# and is present in HELIX_PEERS. HELIX_BIND_ADDR is 0.0.0.0:7070 so the node listens on all
+# interfaces, while peers dial the per-pod DNS names in HELIX_PEERS. Defaults N=3, R=2, W=2 suit
+# three nodes, so no quorum tuning is set here.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: helix
+  namespace: helix
+  labels:
+    app: helix
+spec:
+  serviceName: helix-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: helix
+  template:
+    metadata:
+      labels:
+        app: helix
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: kvnode
+          image: helix:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 7070
+            - name: metrics
+              containerPort: 9090
+          env:
+            - name: HELIX_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: HELIX_PEERS
+              value: "helix-0=helix-0.helix-headless.helix.svc.cluster.local:7070,helix-1=helix-1.helix-headless.helix.svc.cluster.local:7070,helix-2=helix-2.helix-headless.helix.svc.cluster.local:7070"
+            - name: HELIX_BIND_ADDR
+              value: "0.0.0.0:7070"
+            - name: HELIX_METRICS_ADDR
+              value: "0.0.0.0:9090"
+            - name: HELIX_DATA_DIR
+              value: "/data"
+            - name: HELIX_LOG_FORMAT
+              value: "json"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              memory: "256Mi"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
