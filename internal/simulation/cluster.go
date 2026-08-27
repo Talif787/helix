@@ -111,6 +111,7 @@ func NewCluster(cfg Config) (*Cluster, error) {
 		tr := &SimTransport{self: id, net: net, nodes: nodes}
 		co := cluster.NewCoordinator(ring, tr, cfg.N, cfg.R, cfg.W, cfg.MaxHints, c.now, nil)
 		co.SetRequestTimeout(cfg.RequestTimeout)
+		co.SetLiveness(func(id string) bool { return !net.isDead(id) })
 		c.coords[id] = co
 	}
 	return c, nil

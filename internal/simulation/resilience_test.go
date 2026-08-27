@@ -102,3 +102,39 @@ func TestWriteFailsFastWhenQuorumHung(t *testing.T) {
 		t.Fatalf("write should fail fast via the per-attempt timeout, took %v (unbounded wait)", elapsed)
 	}
 }
+
+// TestSkipsDeadReplicaWithoutTimeout is the Phase 12 Part 2 behavior: when the membership view
+// considers a replica Dead, the coordinator skips it entirely instead of dialing and waiting out
+// the per-attempt timeout. The request timeout is set deliberately large (1s) and the dead node is
+// also hung, so if it were dialed the write would take about that long; the assertion that the
+// write returns in well under that proves the node was skipped, not merely bounded.
+func TestSkipsDeadReplicaWithoutTimeout(t *testing.T) {
+	c, err := NewCluster(Config{
+		IDs: []string{"n0", "n1", "n2"}, N: 3, R: 2, W: 2, MaxHints: -1,
+		BaseDir: t.TempDir(), Seed: 1,
+		RequestTimeout: 1 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("new cluster: %v", err)
+	}
+	defer c.Close()
+
+	c.Net.Hang("n2")     // if contacted, n2 would hang until the per-attempt timeout
+	c.Net.MarkDead("n2") // but the membership view says Dead, so the coordinator must skip it
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	if err := c.Put(ctx, "n0", []byte("k"), []byte("v")); err != nil {
+		t.Fatalf("write should succeed on the healthy quorum: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+		t.Fatalf("a Dead replica should be skipped without waiting on the timeout, took %v", elapsed)
+	}
+
+	got, err := c.Get(ctx, "n1", []byte("k"))
+	if err != nil || string(got) != "v" {
+		t.Fatalf("read back through a healthy node: got %q err %v", got, err)
+	}
+}
