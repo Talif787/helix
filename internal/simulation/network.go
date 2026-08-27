@@ -73,10 +73,11 @@ type Network struct {
 
 	mu       sync.Mutex
 	isolated map[string]bool
+	hung     map[string]bool
 }
 
 func newNetwork(faults *faultState) *Network {
-	return &Network{faults: faults, isolated: map[string]bool{}}
+	return &Network{faults: faults, isolated: map[string]bool{}, hung: map[string]bool{}}
 }
 
 // Partition isolates the given nodes into their own group: they can talk to each other but not
@@ -97,6 +98,32 @@ func (n *Network) Heal() {
 	n.isolated = map[string]bool{}
 }
 
+// Hang marks the given nodes as hung: a call to one of them is accepted (it is reachable) but
+// never answers, so the caller blocks until its context deadline. This models a node that is
+// present in the ring and resolvable but not actually serving, for example a pod whose DNS
+// resolves before the process is listening. It replaces any previous hung set.
+func (n *Network) Hang(nodes ...string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.hung = make(map[string]bool, len(nodes))
+	for _, id := range nodes {
+		n.hung[id] = true
+	}
+}
+
+// Unhang clears all hung nodes.
+func (n *Network) Unhang() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.hung = map[string]bool{}
+}
+
+func (n *Network) isHung(id string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.hung[id]
+}
+
 func (n *Network) reachable(from, to string) bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -112,6 +139,10 @@ func (n *Network) gate(ctx context.Context, from, to string) error {
 	}
 	if !n.reachable(from, to) {
 		return cluster.ErrNodeUnavailable
+	}
+	if n.isHung(to) {
+		<-ctx.Done() // reachable but never answers: block until the caller's deadline
+		return ctx.Err()
 	}
 	if n.faults.shouldDrop() {
 		return cluster.ErrNodeUnavailable
