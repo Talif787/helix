@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "helix.fullname" . }}
+  labels:
+    {{- include "helix.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "helix.headlessName" . }}
+  replicas: {{ .Values.replicaCount }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "helix.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "helix.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: kvnode
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.ports.grpc }}
+            - name: metrics
+              containerPort: {{ .Values.ports.metrics }}
+          env:
+            - name: HELIX_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: HELIX_PEERS
+              value: {{ include "helix.peers" . | quote }}
+            - name: HELIX_BIND_ADDR
+              value: "0.0.0.0:{{ .Values.ports.grpc }}"
+            - name: HELIX_METRICS_ADDR
+              value: "0.0.0.0:{{ .Values.ports.metrics }}"
+            - name: HELIX_DATA_DIR
+              value: {{ .Values.dataDir | quote }}
+            - name: HELIX_LOG_FORMAT
+              value: {{ .Values.logFormat | quote }}
+            - name: HELIX_N
+              value: {{ .Values.cluster.n | default 3 | toString | quote }}
+            - name: HELIX_R
+              value: {{ .Values.cluster.r | default 2 | toString | quote }}
+            - name: HELIX_W
+              value: {{ .Values.cluster.w | default 2 | toString | quote }}
+            - name: HELIX_VNODES
+              value: {{ .Values.cluster.vnodes | default 128 | toString | quote }}
+            {{- if .Values.cluster.maxHints }}
+            - name: HELIX_MAX_HINTS
+              value: {{ .Values.cluster.maxHints | toString | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.dataDir }}
+      {{- if not .Values.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size | quote }}
+        {{- if .Values.persistence.storageClassName }}
+        storageClassName: {{ .Values.persistence.storageClassName | quote }}
+        {{- end }}
+  {{- end }}

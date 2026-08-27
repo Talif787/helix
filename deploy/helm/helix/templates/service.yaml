@@ -1,0 +1,18 @@
+# Client-facing Service. Any node can coordinate a request, so this load-balances across pods.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helix.fullname" . }}
+  labels:
+    {{- include "helix.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "helix.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.ports.grpc }}
+      targetPort: grpc
+    - name: metrics
+      port: {{ .Values.ports.metrics }}
+      targetPort: metrics

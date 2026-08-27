@@ -1,0 +1,7 @@
+apiVersion: v2
+name: helix
+description: A leaderless, tunably-consistent distributed key-value store (Dynamo/Cassandra lineage)
+type: application
+# version is the chart version; appVersion tracks the Helix release the chart deploys by default.
+version: 0.1.0
+appVersion: "0.11.0"

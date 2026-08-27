@@ -1,0 +1,20 @@
+# Headless Service: stable per-pod DNS for peer discovery. publishNotReadyAddresses lets pods
+# resolve each other during bootstrap, before they pass readiness.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helix.headlessName" . }}
+  labels:
+    {{- include "helix.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "helix.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.ports.grpc }}
+      targetPort: grpc
+    - name: metrics
+      port: {{ .Values.ports.metrics }}
+      targetPort: metrics

@@ -1,0 +1,77 @@
+# Default values for the Helix chart. Override with --set or a values file.
+
+# Number of nodes. Peer discovery and HELIX_PEERS are generated for exactly this many pods, so
+# changing it is all that is needed to resize the cluster (keep it odd and >= N for sane quorums).
+replicaCount: 3
+
+image:
+  repository: helix
+  tag: local
+  # IfNotPresent so a locally loaded image (kind load docker-image) is used rather than pulled.
+  pullPolicy: IfNotPresent
+
+# nameOverride/fullnameOverride follow the standard Helm pattern; leave empty to derive from the
+# release name. The StatefulSet name becomes the pod-name prefix and must match HELIX_PEERS keys,
+# which the peers helper guarantees because it derives both from the same fullname.
+nameOverride: ""
+fullnameOverride: ""
+
+# clusterDomain is the in-cluster DNS suffix; override only on clusters not using cluster.local.
+clusterDomain: cluster.local
+
+# Replication and ring tuning. Defaults suit three nodes and match the binary's own defaults.
+cluster:
+  n: 3
+  r: 2
+  w: 2
+  vnodes: 128
+  # maxHints defaults to N inside the binary when left empty here.
+  maxHints: ""
+
+ports:
+  grpc: 7070
+  metrics: 9090
+
+dataDir: /data
+logFormat: json
+
+service:
+  # Client-facing Service. Any node can coordinate, so ClusterIP load-balancing across pods is fine.
+  type: ClusterIP
+
+persistence:
+  enabled: true
+  size: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  # Empty uses the cluster's default StorageClass (kind ships one named "standard").
+  storageClassName: ""
+
+# Pod-level security context. The image runs as non-root uid 10001; fsGroup makes the mounted
+# volume writable by that user.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+probes:
+  readiness:
+    initialDelaySeconds: 3
+    periodSeconds: 5
+    failureThreshold: 6
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 6
+
+# Extra environment variables appended verbatim to the container (for example TLS paths or the
+# SWIM/anti-entropy/hint intervals the binary also reads).
+extraEnv: []
