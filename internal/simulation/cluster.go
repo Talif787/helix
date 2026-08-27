@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/talifpathan/helix/internal/cluster"
 	"github.com/talifpathan/helix/internal/storage"
@@ -21,6 +22,9 @@ type Config struct {
 	BaseDir  string
 	Seed     int64
 	Faults   Faults
+	// RequestTimeout, if set, bounds each replica RPC in the coordinator so one hung replica
+	// cannot consume the caller's whole deadline. Zero leaves the coordinator's default (off).
+	RequestTimeout time.Duration
 }
 
 func (c *Config) withDefaults() {
@@ -105,7 +109,9 @@ func NewCluster(cfg Config) (*Cluster, error) {
 	}
 	for _, id := range cfg.IDs {
 		tr := &SimTransport{self: id, net: net, nodes: nodes}
-		c.coords[id] = cluster.NewCoordinator(ring, tr, cfg.N, cfg.R, cfg.W, cfg.MaxHints, c.now, nil)
+		co := cluster.NewCoordinator(ring, tr, cfg.N, cfg.R, cfg.W, cfg.MaxHints, c.now, nil)
+		co.SetRequestTimeout(cfg.RequestTimeout)
+		c.coords[id] = co
 	}
 	return c, nil
 }
