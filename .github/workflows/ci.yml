@@ -1,0 +1,56 @@
+# GitHub Actions CI for Helix. Runs on every push to main and on every pull request,
+# on GitHub-hosted runners, so it needs no GCP account, billing, or trigger setup. It
+# mirrors the Cloud Build gate (gofmt, vet, build, race tests) on the pinned Go 1.22.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Pin the toolchain so a newer Go on the runner cannot silently upgrade the build,
+# matching the repo's GOTOOLCHAIN=local policy.
+env:
+  GOTOOLCHAIN: local
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: build, vet, race tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: gofmt (excluding vendor)
+        run: |
+          files="$(git ls-files '*.go' | grep -v '^vendor/')"
+          unformatted="$(gofmt -l $files)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test -race
+        env:
+          CGO_ENABLED: 1
+        run: go test -race -count=1 ./...
