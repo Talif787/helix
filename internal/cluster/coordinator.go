@@ -31,6 +31,10 @@ type Coordinator struct {
 	// reqTimeout bounds a single replica RPC so one hung or unreachable replica cannot consume
 	// the caller's whole deadline. Zero disables the per-attempt bound.
 	reqTimeout time.Duration
+	// liveness, if set, reports whether a replica should be attempted. A node the local
+	// membership view considers Dead is skipped (fast-failed) rather than dialed, so a
+	// confirmed-dead replica costs nothing instead of a per-attempt timeout. Nil attempts all.
+	liveness func(id string) bool
 }
 
 // NewCoordinator binds a ring and transport with replication factor n, quorums r and w, and
@@ -77,6 +81,23 @@ func (c *Coordinator) attemptCtx(ctx context.Context) (context.Context, context.
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, c.reqTimeout)
+}
+
+// SetLiveness installs a predicate that reports whether a replica should be attempted. A node the
+// predicate reports as not attemptable (for example one the membership view considers Dead) is
+// fast-failed instead of dialed, so it costs nothing rather than a per-attempt timeout. Passing
+// nil (the default) attempts every node. It is meant to be called once at wiring time.
+func (c *Coordinator) SetLiveness(fn func(id string) bool) {
+	c.liveness = fn
+}
+
+// isAttemptable reports whether a replica should be contacted. With no liveness predicate set,
+// every node is attemptable.
+func (c *Coordinator) isAttemptable(id string) bool {
+	if c.liveness == nil {
+		return true
+	}
+	return c.liveness(id)
 }
 
 // resultOf classifies a request outcome for the result label. For reads, a missing key is a
@@ -145,6 +166,10 @@ func (c *Coordinator) write(ctx context.Context, key, value []byte, deleted bool
 	results := make(chan presult, len(pref))
 	for _, id := range pref {
 		go func(id string) {
+			if !c.isAttemptable(id) {
+				results <- presult{id, ErrNodeUnavailable}
+				return
+			}
 			rctx, cancel := c.attemptCtx(ctx)
 			defer cancel()
 			rep, ok := c.tr.Replica(id)
@@ -178,6 +203,9 @@ func (c *Coordinator) write(ctx context.Context, key, value []byte, deleted bool
 		for fi < len(fallbacks) {
 			fb := fallbacks[fi]
 			fi++
+			if !c.isAttemptable(fb) {
+				continue
+			}
 			rep, ok := c.tr.Replica(fb)
 			if !ok {
 				continue
@@ -210,6 +238,10 @@ func (c *Coordinator) readClock(ctx context.Context, key []byte, pref []string) 
 	ch := make(chan res, len(pref))
 	for _, id := range pref {
 		go func(id string) {
+			if !c.isAttemptable(id) {
+				ch <- res{}
+				return
+			}
 			rctx, cancel := c.attemptCtx(ctx)
 			defer cancel()
 			rep, ok := c.tr.Replica(id)
@@ -266,6 +298,10 @@ func (c *Coordinator) get(ctx context.Context, key []byte) ([]byte, error) {
 	ch := make(chan readResult, len(pref))
 	for _, id := range pref {
 		go func(id string) {
+			if !c.isAttemptable(id) {
+				ch <- readResult{id: id, err: ErrNodeUnavailable}
+				return
+			}
 			rctx, cancel := c.attemptCtx(ctx)
 			defer cancel()
 			rep, ok := c.tr.Replica(id)

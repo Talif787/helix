@@ -225,6 +225,16 @@ func New(cfg Config) (*Daemon, error) {
 	latency := reg.NewHistogram("helix_request_duration_seconds", "coordinator request latency in seconds", metrics.DefaultLatencyBuckets, "op")
 	coord.SetMetrics(&coordMetrics{requests: requests, latency: latency})
 	coord.SetRequestTimeout(cfg.RequestTimeout)
+	// Skip replicas the local membership view considers Dead: fast-fail them instead of dialing
+	// and waiting out the per-attempt timeout. Only Dead is skipped; Suspect and unknown nodes are
+	// still attempted, so a false suspicion never routes traffic away from a healthy node.
+	coord.SetLiveness(func(id string) bool {
+		st, known := swim.List().StateOf(id)
+		if !known {
+			return true
+		}
+		return st != membership.Dead
+	})
 
 	return d, nil
 }
