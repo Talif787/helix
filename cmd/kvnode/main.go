@@ -18,6 +18,7 @@
 //	HELIX_SWIM_INTERVAL        membership round period (default 1s)
 //	HELIX_ANTIENTROPY_INTERVAL anti-entropy round period (default 30s)
 //	HELIX_HINT_INTERVAL        hint-delivery period (default 10s)
+//	HELIX_REQUEST_TIMEOUT      per-replica RPC timeout in the coordinator (default 2s)
 package main
 
 import (
@@ -124,6 +125,10 @@ func daemonConfigFromEnv(base config.Config, logger *slog.Logger) (daemon.Config
 	if err != nil {
 		return daemon.Config{}, err
 	}
+	reqTimeout, err := envDuration("HELIX_REQUEST_TIMEOUT", 2*time.Second)
+	if err != nil {
+		return daemon.Config{}, err
+	}
 
 	return daemon.Config{
 		NodeID:              nodeID,
@@ -142,6 +147,7 @@ func daemonConfigFromEnv(base config.Config, logger *slog.Logger) (daemon.Config
 		SwimInterval:        swimIv,
 		AntiEntropyInterval: aeIv,
 		HintInterval:        hintIv,
+		RequestTimeout:      reqTimeout,
 		Logger:              logger,
 	}, nil
 }

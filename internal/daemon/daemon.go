@@ -50,6 +50,7 @@ type Config struct {
 	SwimInterval        time.Duration
 	AntiEntropyInterval time.Duration
 	HintInterval        time.Duration
+	RequestTimeout      time.Duration // per-replica RPC bound in the coordinator; 0 uses the default
 
 	Listener net.Listener
 	Logger   *slog.Logger
@@ -79,6 +80,9 @@ func (c *Config) withDefaults() {
 	}
 	if c.HintInterval == 0 {
 		c.HintInterval = 10 * time.Second
+	}
+	if c.RequestTimeout == 0 {
+		c.RequestTimeout = 2 * time.Second
 	}
 	if c.Logger == nil {
 		c.Logger = slog.Default()
@@ -220,6 +224,7 @@ func New(cfg Config) (*Daemon, error) {
 	requests := reg.NewCounter("helix_requests_total", "coordinator requests by operation and result", "op", "result")
 	latency := reg.NewHistogram("helix_request_duration_seconds", "coordinator request latency in seconds", metrics.DefaultLatencyBuckets, "op")
 	coord.SetMetrics(&coordMetrics{requests: requests, latency: latency})
+	coord.SetRequestTimeout(cfg.RequestTimeout)
 
 	return d, nil
 }

@@ -28,6 +28,9 @@ type Coordinator struct {
 	now      func() int64
 	log      *slog.Logger
 	metrics  Metrics
+	// reqTimeout bounds a single replica RPC so one hung or unreachable replica cannot consume
+	// the caller's whole deadline. Zero disables the per-attempt bound.
+	reqTimeout time.Duration
 }
 
 // NewCoordinator binds a ring and transport with replication factor n, quorums r and w, and
@@ -53,6 +56,27 @@ func (c *Coordinator) SetMetrics(m Metrics) {
 		m = nopMetrics{}
 	}
 	c.metrics = m
+}
+
+// SetRequestTimeout bounds how long the coordinator waits on a single replica RPC before
+// treating it as failed, so one hung or unreachable replica cannot consume the caller's whole
+// deadline. Zero (the default) disables the per-attempt bound. It is meant to be called once at
+// wiring time, before serving.
+func (c *Coordinator) SetRequestTimeout(d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	c.reqTimeout = d
+}
+
+// attemptCtx derives the context for one replica RPC. With a request timeout set, it caps the
+// attempt so a slow replica fails fast; otherwise it returns the parent unchanged. The returned
+// cancel func must always be called.
+func (c *Coordinator) attemptCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.reqTimeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, c.reqTimeout)
 }
 
 // resultOf classifies a request outcome for the result label. For reads, a missing key is a
@@ -121,12 +145,14 @@ func (c *Coordinator) write(ctx context.Context, key, value []byte, deleted bool
 	results := make(chan presult, len(pref))
 	for _, id := range pref {
 		go func(id string) {
+			rctx, cancel := c.attemptCtx(ctx)
+			defer cancel()
 			rep, ok := c.tr.Replica(id)
 			if !ok {
 				results <- presult{id, ErrNodeUnavailable}
 				return
 			}
-			results <- presult{id, rep.PutVersioned(ctx, key, vv)}
+			results <- presult{id, rep.PutVersioned(rctx, key, vv)}
 		}(id)
 	}
 	acks := 0
@@ -156,7 +182,10 @@ func (c *Coordinator) write(ctx context.Context, key, value []byte, deleted bool
 			if !ok {
 				continue
 			}
-			if err := rep.PutHint(ctx, downNode, key, vv); err == nil {
+			hctx, hcancel := c.attemptCtx(ctx)
+			err := rep.PutHint(hctx, downNode, key, vv)
+			hcancel()
+			if err == nil {
 				acks++
 				c.log.Info("stored hint", "for", downNode, "on", fb)
 				break
@@ -181,15 +210,22 @@ func (c *Coordinator) readClock(ctx context.Context, key []byte, pref []string) 
 	ch := make(chan res, len(pref))
 	for _, id := range pref {
 		go func(id string) {
+			rctx, cancel := c.attemptCtx(ctx)
+			defer cancel()
 			rep, ok := c.tr.Replica(id)
 			if !ok {
 				ch <- res{}
 				return
 			}
-			vv, found, err := rep.GetVersioned(ctx, key)
+			vv, found, err := rep.GetVersioned(rctx, key)
 			ch <- res{vv: vv, ok: err == nil && found}
 		}(id)
 	}
+	// Wait for every preferred replica and merge the clocks of those that answered, to build a
+	// causal base. Each attempt is bounded by the per-attempt timeout, so a hung replica fails
+	// fast rather than consuming the caller's deadline; waiting for all of them (rather than
+	// returning early) ensures no replica goroutine outlives this call, which would otherwise race
+	// with a concurrent crash that closes a replica's engine.
 	merged := VectorClock{}
 	for i := 0; i < len(pref); i++ {
 		if r := <-ch; r.ok {
@@ -230,12 +266,14 @@ func (c *Coordinator) get(ctx context.Context, key []byte) ([]byte, error) {
 	ch := make(chan readResult, len(pref))
 	for _, id := range pref {
 		go func(id string) {
+			rctx, cancel := c.attemptCtx(ctx)
+			defer cancel()
 			rep, ok := c.tr.Replica(id)
 			if !ok {
 				ch <- readResult{id: id, err: ErrNodeUnavailable}
 				return
 			}
-			vv, found, err := rep.GetVersioned(ctx, key)
+			vv, found, err := rep.GetVersioned(rctx, key)
 			ch <- readResult{id: id, vv: vv, found: found, err: err}
 		}(id)
 	}
@@ -243,6 +281,9 @@ func (c *Coordinator) get(ctx context.Context, key []byte) ([]byte, error) {
 	responders := make([]readResult, 0, len(pref))
 	ok := 0
 	var firstErr error
+	// Wait for every preferred replica so read repair can heal each stale one. Each attempt is
+	// bounded by the per-attempt timeout, so a hung replica fails fast instead of consuming the
+	// caller's whole deadline; it just does not contribute a response.
 	for i := 0; i < len(pref); i++ {
 		rr := <-ch
 		responders = append(responders, rr)
