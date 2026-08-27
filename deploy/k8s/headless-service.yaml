@@ -1,0 +1,24 @@
+# The headless Service (clusterIP: None) gives every pod a stable DNS name of the form
+# <pod>.helix-headless.helix.svc.cluster.local, which is how the nodes find each other. It is
+# the Kubernetes equivalent of Compose's service-name DNS. publishNotReadyAddresses is true so a
+# pod is resolvable during startup, before it passes its readiness probe, which the peers need in
+# order to form the cluster in the first place.
+apiVersion: v1
+kind: Service
+metadata:
+  name: helix-headless
+  namespace: helix
+  labels:
+    app: helix
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: helix
+  ports:
+    - name: grpc
+      port: 7070
+      targetPort: grpc
+    - name: metrics
+      port: 9090
+      targetPort: metrics

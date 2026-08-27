@@ -1,0 +1,7 @@
+# A dedicated namespace so the cluster's resources are grouped and easy to remove.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: helix
+  labels:
+    app: helix
