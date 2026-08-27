@@ -74,10 +74,11 @@ type Network struct {
 	mu       sync.Mutex
 	isolated map[string]bool
 	hung     map[string]bool
+	dead     map[string]bool
 }
 
 func newNetwork(faults *faultState) *Network {
-	return &Network{faults: faults, isolated: map[string]bool{}, hung: map[string]bool{}}
+	return &Network{faults: faults, isolated: map[string]bool{}, hung: map[string]bool{}, dead: map[string]bool{}}
 }
 
 // Partition isolates the given nodes into their own group: they can talk to each other but not
@@ -122,6 +123,33 @@ func (n *Network) isHung(id string) bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.hung[id]
+}
+
+// MarkDead sets the membership view (as consulted by the coordinators' liveness predicate) to
+// consider the given nodes Dead, so a coordinator skips them instead of dialing. It models SWIM
+// having declared a node dead while it is still present in the ring, and is distinct from Crash
+// (which removes the node) and Hang (which makes a contacted node never answer). It replaces any
+// previous dead set.
+func (n *Network) MarkDead(nodes ...string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.dead = make(map[string]bool, len(nodes))
+	for _, id := range nodes {
+		n.dead[id] = true
+	}
+}
+
+// MarkAllAlive clears the dead set.
+func (n *Network) MarkAllAlive() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.dead = map[string]bool{}
+}
+
+func (n *Network) isDead(id string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.dead[id]
 }
 
 func (n *Network) reachable(from, to string) bool {
