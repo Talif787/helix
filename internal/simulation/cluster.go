@@ -51,6 +51,15 @@ type Cluster struct {
 	engines map[string]*storage.Engine
 	coords  map[string]*cluster.Coordinator
 	clock   int64
+
+	// The fields below support crash/restart and anti-entropy (the recovery phase). nodes is the
+	// same registry every SimTransport resolves through, so updating it here changes what every
+	// coordinator can reach; ring, baseDir, and n are what Restart needs to reopen a node's engine
+	// and rebuild its Replica, and what AntiEntropy and CheckConvergence need to scope a repair.
+	nodes   map[string]cluster.Replica
+	ring    *cluster.Ring
+	baseDir string
+	n       int
 }
 
 // NewCluster builds and returns a simulated cluster. Each node gets an engine under
@@ -89,6 +98,10 @@ func NewCluster(cfg Config) (*Cluster, error) {
 		ids:     append([]string(nil), cfg.IDs...),
 		engines: engines,
 		coords:  make(map[string]*cluster.Coordinator, len(cfg.IDs)),
+		nodes:   nodes,
+		ring:    ring,
+		baseDir: cfg.BaseDir,
+		n:       cfg.N,
 	}
 	for _, id := range cfg.IDs {
 		tr := &SimTransport{self: id, net: net, nodes: nodes}
