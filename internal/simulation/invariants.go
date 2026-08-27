@@ -77,25 +77,30 @@ func CheckFreshness(events []Event) []Violation {
 		}
 		ws := writesByKey[g.Key]
 
-		// iComplete: last write that fully completed before the read began.
-		// iStarted: last write that had started before the read began (>= iComplete).
-		iComplete, iStarted := -1, -1
+		// iComplete: last write that fully completed before the read began; the read must return
+		// this value or a fresher one.
+		// iVisible: last write that had begun before the read returned. A write that overlaps the
+		// read (it started after the read began but committed before the read executed) is a legal
+		// value for a linearizable read to return, so the upper bound is the read's end, not its
+		// start. Using the read's start here would falsely reject a read that observed a
+		// concurrently committed write.
+		iComplete, iVisible := -1, -1
 		for idx, w := range ws {
 			if w.EndSeq < g.StartSeq {
 				iComplete = idx
 			}
-			if w.StartSeq < g.StartSeq {
-				iStarted = idx
+			if w.StartSeq < g.EndSeq {
+				iVisible = idx
 			}
 		}
 
 		if iComplete == -1 {
 			// Nothing had completed before the read: not-found is fine, and so is any value from
-			// a write that had started (was in flight) when the read began.
+			// a write that had begun before the read returned (in flight during the read).
 			if !g.Found {
 				continue
 			}
-			if !valueInRange(ws, 0, iStarted, g.Value) {
+			if !valueInRange(ws, 0, iVisible, g.Value) {
 				vs = append(vs, Violation{
 					Kind:   "freshness",
 					Detail: fmt.Sprintf("get(%s) returned %q but no write had completed and it matches no in-flight write", g.Key, g.Value),
@@ -112,7 +117,7 @@ func CheckFreshness(events []Event) []Violation {
 			})
 			continue
 		}
-		if !valueInRange(ws, iComplete, iStarted, g.Value) {
+		if !valueInRange(ws, iComplete, iVisible, g.Value) {
 			vs = append(vs, Violation{
 				Kind:   "freshness",
 				Detail: fmt.Sprintf("get(%s) returned stale %q; expected at least %q", g.Key, g.Value, ws[iComplete].Value),
