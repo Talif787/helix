@@ -128,6 +128,7 @@ type Daemon struct {
 	messenger *rpc.GRPCMessenger
 	swim      *membership.Swim
 	coord     *cluster.Coordinator
+	ring      *cluster.Ring
 	server    *grpc.Server
 
 	lis        net.Listener
@@ -207,7 +208,7 @@ func New(cfg Config) (*Daemon, error) {
 	d := &Daemon{
 		cfg: cfg, log: log, ids: ids, node: node,
 		peers: peers, transport: transport, messenger: messenger,
-		swim: swim, coord: coord, server: server,
+		swim: swim, coord: coord, ring: ring, server: server,
 		eng: eng, startedAt: time.Now(), reg: reg,
 		gUp:       reg.NewGauge("helix_up", "1 if the node process is running"),
 		gUptime:   reg.NewGauge("helix_uptime_seconds", "seconds since the node started"),
@@ -305,6 +306,12 @@ func (d *Daemon) startAdmin() error {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "ok\n")
 	})
+	// Read-only status API (JSON) for the operator console's gateway to aggregate: config and
+	// storage state, SWIM membership, the ring, and a key's preference list.
+	mux.HandleFunc("GET /api/v1/status", d.handleStatus)
+	mux.HandleFunc("GET /api/v1/members", d.handleMembers)
+	mux.HandleFunc("GET /api/v1/ring", d.handleRing)
+	mux.HandleFunc("GET /api/v1/key/{key}", d.handleKey)
 	d.adminLis = lis
 	d.admin = &http.Server{Handler: mux}
 	go func() { _ = d.admin.Serve(lis) }()
