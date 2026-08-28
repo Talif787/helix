@@ -1,0 +1,5 @@
+# Copy to terraform.tfvars and set at least project_id.
+project_id    = "your-gcp-project"
+region        = "us-central1"
+image_tag     = "v0.12.0"
+replica_count = 3
