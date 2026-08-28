@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars and adjust as needed.
+kube_context  = "kind-helix-test"
+replica_count = 3
+image_tag     = "local"

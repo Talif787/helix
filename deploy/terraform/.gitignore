@@ -1,0 +1,12 @@
+# Terraform working directories and state (never commit these)
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Local variable files may contain project ids or secrets; commit only *.tfvars.example
+terraform.tfvars
+*.auto.tfvars
