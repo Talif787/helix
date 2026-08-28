@@ -139,7 +139,7 @@ func TestClusterStatusAggregatesPartialFailures(t *testing.T) {
 		},
 	}, nil)
 
-	cs := srv.clusterStatus(context.Background())
+	cs := srv.aggregate(context.Background(), "/api/v1/status")
 	if len(cs.Nodes) != 2 {
 		t.Fatalf("want 2 node results, got %d", len(cs.Nodes))
 	}
@@ -149,7 +149,7 @@ func TestClusterStatusAggregatesPartialFailures(t *testing.T) {
 	var status struct {
 		NodeID string `json:"node_id"`
 	}
-	if err := json.Unmarshal(cs.Nodes[0].Status, &status); err != nil || status.NodeID != "helix-0" {
+	if err := json.Unmarshal(cs.Nodes[0].Data, &status); err != nil || status.NodeID != "helix-0" {
 		t.Fatalf("raw status should be relayed: %v %+v", err, status)
 	}
 	if cs.Nodes[1].OK || cs.Nodes[1].Error == "" {
