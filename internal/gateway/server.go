@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/talifpathan/helix/internal/rpc"
 )
 
 // Server holds the gateway's configuration and its HTTP handler.
@@ -17,10 +19,12 @@ type Server struct {
 	cfg  Config
 	log  *slog.Logger
 	http *http.Client
+	kv   []kvClient
 	mux  http.Handler
 }
 
-// New builds a Server. A nil logger uses slog.Default.
+// New builds a Server. A nil logger uses slog.Default. It dials a KV client per node (lazily, so a
+// momentarily unreachable node does not fail startup); the KV endpoints fail over across these.
 func New(cfg Config, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
@@ -30,12 +34,34 @@ func New(cfg Config, log *slog.Logger) *Server {
 		log:  log,
 		http: &http.Client{Timeout: cfg.HTTPTimeout},
 	}
+	for _, n := range cfg.Nodes {
+		if n.GRPCAddr == "" {
+			continue
+		}
+		c, err := rpc.DialClient(n.GRPCAddr)
+		if err != nil {
+			log.Warn("gateway: could not create KV client", "node", n.ID, "addr", n.GRPCAddr, "err", err)
+			continue
+		}
+		s.kv = append(s.kv, c)
+	}
 	s.mux = s.routes()
 	return s
 }
 
 // Handler returns the fully wrapped HTTP handler (routes plus CORS).
 func (s *Server) Handler() http.Handler { return s.mux }
+
+// Close releases the gateway's gRPC connections to the cluster.
+func (s *Server) Close() error {
+	var firstErr error
+	for _, c := range s.kv {
+		if err := c.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
@@ -48,6 +74,9 @@ func (s *Server) routes() http.Handler {
 
 	// Authenticated API.
 	mux.Handle("GET /api/v1/cluster/status", s.auth(http.HandlerFunc(s.handleClusterStatus)))
+	mux.Handle("GET /api/v1/kv/{key}", s.auth(http.HandlerFunc(s.handleKVGet)))
+	mux.Handle("PUT /api/v1/kv/{key}", s.auth(http.HandlerFunc(s.handleKVPut)))
+	mux.Handle("DELETE /api/v1/kv/{key}", s.auth(http.HandlerFunc(s.handleKVDelete)))
 
 	return s.cors(mux)
 }
