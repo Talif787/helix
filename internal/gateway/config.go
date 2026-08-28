@@ -17,11 +17,12 @@ type Node struct {
 
 // Config controls the gateway. It is populated from HELIX_GATEWAY_* environment variables.
 type Config struct {
-	Addr        string        // listen address for the gateway HTTP server
-	Token       string        // operator bearer token; empty disables auth (development only)
-	CORSOrigin  string        // allowed browser origin; empty disables CORS
-	Nodes       []Node        // cluster nodes to aggregate and proxy
-	HTTPTimeout time.Duration // per-request timeout when calling a node
+	Addr           string        // listen address for the gateway HTTP server
+	Token          string        // operator bearer token; empty disables auth (development only)
+	CORSOrigin     string        // allowed browser origin; empty disables CORS
+	Nodes          []Node        // cluster nodes to aggregate and proxy
+	HTTPTimeout    time.Duration // per-request timeout when calling a node
+	StreamInterval time.Duration // how often the SSE stream pushes a snapshot
 }
 
 // FromEnv builds a Config from the environment:
@@ -31,6 +32,7 @@ type Config struct {
 //	HELIX_GATEWAY_CORS_ORIGIN   allowed browser origin (empty disables CORS)
 //	HELIX_GATEWAY_NODES         comma list of "id=grpcHost:7070;adminHost:9090"
 //	HELIX_GATEWAY_HTTP_TIMEOUT  per-node call timeout (default "5s")
+//	HELIX_GATEWAY_STREAM_INTERVAL  SSE snapshot cadence (default "2s")
 func FromEnv() (Config, error) {
 	cfg := Config{
 		Addr:       envOr("HELIX_GATEWAY_ADDR", ":8080"),
@@ -43,6 +45,12 @@ func FromEnv() (Config, error) {
 		return Config{}, fmt.Errorf("HELIX_GATEWAY_HTTP_TIMEOUT: %w", err)
 	}
 	cfg.HTTPTimeout = d
+
+	si, err := time.ParseDuration(envOr("HELIX_GATEWAY_STREAM_INTERVAL", "2s"))
+	if err != nil {
+		return Config{}, fmt.Errorf("HELIX_GATEWAY_STREAM_INTERVAL: %w", err)
+	}
+	cfg.StreamInterval = si
 
 	nodes, err := parseNodes(os.Getenv("HELIX_GATEWAY_NODES"))
 	if err != nil {
