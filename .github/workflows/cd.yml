@@ -1,0 +1,91 @@
+# Continuous deployment for Helix. Builds the image, pushes it to Artifact Registry, and deploys
+# the Helm chart to GKE. It runs only on a version tag (v*) or a manual dispatch, never on ordinary
+# pushes, so it does not run (or fail) until you intend a release and have configured the GCP
+# credentials below. See docs/testing-phase10-part3-cd.md for the one-time setup.
+name: CD
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to build and deploy (defaults to the git ref or short SHA)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write # required for Workload Identity Federation
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: build, push, and deploy
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO }}
+      GKE_CLUSTER: ${{ vars.GKE_CLUSTER }}
+      GKE_LOCATION: ${{ vars.GKE_LOCATION }}
+      HELM_RELEASE: ${{ vars.HELM_RELEASE }}
+      HELM_NAMESPACE: ${{ vars.HELM_NAMESPACE }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Resolve the image tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            echo "tag=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=sha-$(echo "$GITHUB_SHA" | cut -c1-12)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push the image
+        env:
+          IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPO }}/helix:${{ steps.tag.outputs.tag }}
+        run: |
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Deploy with Helm
+        env:
+          IMAGE_REPO: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPO }}/helix
+        run: |
+          helm upgrade --install "$HELM_RELEASE" deploy/helm/helix \
+            --namespace "$HELM_NAMESPACE" --create-namespace \
+            --set image.repository="$IMAGE_REPO" \
+            --set image.tag="${{ steps.tag.outputs.tag }}" \
+            --set image.pullPolicy=Always \
+            --wait --timeout 5m
+          kubectl -n "$HELM_NAMESPACE" rollout status statefulset/"$HELM_RELEASE" --timeout=120s
