@@ -74,6 +74,9 @@ func (s *Server) routes() http.Handler {
 
 	// Authenticated API.
 	mux.Handle("GET /api/v1/cluster/status", s.auth(http.HandlerFunc(s.handleClusterStatus)))
+	mux.Handle("GET /api/v1/cluster/members", s.auth(http.HandlerFunc(s.handleClusterMembers)))
+	mux.Handle("GET /api/v1/cluster/ring", s.auth(http.HandlerFunc(s.handleClusterRing)))
+	mux.Handle("GET /api/v1/cluster/metrics", s.auth(http.HandlerFunc(s.handleClusterMetrics)))
 	mux.Handle("GET /api/v1/kv/{key}", s.auth(http.HandlerFunc(s.handleKVGet)))
 	mux.Handle("PUT /api/v1/kv/{key}", s.auth(http.HandlerFunc(s.handleKVPut)))
 	mux.Handle("DELETE /api/v1/kv/{key}", s.auth(http.HandlerFunc(s.handleKVDelete)))

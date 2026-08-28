@@ -9,25 +9,27 @@ import (
 	"sync"
 )
 
-// NodeStatusResult is one node's contribution to the aggregated cluster status. The node's raw
-// /api/v1/status JSON is relayed verbatim so the console gets every field without the gateway
-// having to mirror the node's schema. A node that cannot be reached is reported with OK false and
-// an error, so the console can show a degraded cluster rather than failing the whole request.
-type NodeStatusResult struct {
+// NodeResult is one node's contribution to an aggregated view. The node's raw JSON for the fetched
+// admin path is relayed verbatim in Data, so the console gets every field without the gateway
+// mirroring the node's schema. A node that cannot be reached is reported with OK false and an
+// error, so the console can show a degraded cluster rather than failing the whole request.
+type NodeResult struct {
 	NodeID string          `json:"node_id"`
 	OK     bool            `json:"ok"`
 	Error  string          `json:"error,omitempty"`
-	Status json.RawMessage `json:"status,omitempty"`
+	Data   json.RawMessage `json:"data,omitempty"`
 }
 
-// ClusterStatus is the aggregated view returned by GET /api/v1/cluster/status.
-type ClusterStatus struct {
-	Nodes []NodeStatusResult `json:"nodes"`
+// ClusterAggregate is the shape returned by the per-node aggregation endpoints (status, members,
+// ring): one NodeResult per configured node, in configured order.
+type ClusterAggregate struct {
+	Nodes []NodeResult `json:"nodes"`
 }
 
-func (s *Server) fetchNodeStatus(ctx context.Context, n Node) NodeStatusResult {
-	res := NodeStatusResult{NodeID: n.ID}
-	url := fmt.Sprintf("http://%s/api/v1/status", n.AdminAddr)
+// fetchNodeJSON GETs a JSON admin path from one node and relays its body.
+func (s *Server) fetchNodeJSON(ctx context.Context, n Node, path string) NodeResult {
+	res := NodeResult{NodeID: n.ID}
+	url := fmt.Sprintf("http://%s%s", n.AdminAddr, path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		res.Error = err.Error()
@@ -49,25 +51,33 @@ func (s *Server) fetchNodeStatus(ctx context.Context, n Node) NodeStatusResult {
 		return res
 	}
 	res.OK = true
-	res.Status = json.RawMessage(body)
+	res.Data = json.RawMessage(body)
 	return res
 }
 
-// clusterStatus fetches every node's status concurrently and returns them in configured order.
-func (s *Server) clusterStatus(ctx context.Context) ClusterStatus {
-	results := make([]NodeStatusResult, len(s.cfg.Nodes))
+// aggregate fetches the given admin path from every node concurrently, in configured order.
+func (s *Server) aggregate(ctx context.Context, path string) ClusterAggregate {
+	results := make([]NodeResult, len(s.cfg.Nodes))
 	var wg sync.WaitGroup
 	for i, n := range s.cfg.Nodes {
 		wg.Add(1)
 		go func(i int, n Node) {
 			defer wg.Done()
-			results[i] = s.fetchNodeStatus(ctx, n)
+			results[i] = s.fetchNodeJSON(ctx, n, path)
 		}(i, n)
 	}
 	wg.Wait()
-	return ClusterStatus{Nodes: results}
+	return ClusterAggregate{Nodes: results}
 }
 
 func (s *Server) handleClusterStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.clusterStatus(r.Context()))
+	writeJSON(w, http.StatusOK, s.aggregate(r.Context(), "/api/v1/status"))
+}
+
+func (s *Server) handleClusterMembers(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.aggregate(r.Context(), "/api/v1/members"))
+}
+
+func (s *Server) handleClusterRing(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.aggregate(r.Context(), "/api/v1/ring"))
 }
