@@ -27,6 +27,7 @@ jobs:
     name: build, push, and deploy
     runs-on: ubuntu-latest
     environment: production
+    if: ${{ vars.GCP_PROJECT_ID != '' }}
     env:
       PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       REGION: ${{ vars.GCP_REGION }}
